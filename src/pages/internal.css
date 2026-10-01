@@ -1,0 +1,54 @@
+:root {
+  --accent: #f2545b;
+  --bg: #0a1022;
+  --text: #eef1fb;
+  --text-2: #a2abc6;
+  --text-3: #6b7593;
+  --glass: rgba(255, 255, 255, .06);
+  --glass-2: rgba(255, 255, 255, .1);
+  --border: rgba(255, 255, 255, .09);
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+:root.light {
+  --bg: #eef1f8;
+  --text: #101a33;
+  --text-2: #4f5b78;
+  --text-3: #8590aa;
+  --glass: rgba(255, 255, 255, .6);
+  --glass-2: rgba(255, 255, 255, .85);
+  --border: rgba(10, 25, 70, .08);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font: 14px/1.5 var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+.aurora { position: fixed; inset: -20%; z-index: 0; pointer-events: none; filter: blur(90px) saturate(1.2); opacity: .55; }
+:root.light .aurora { opacity: .35; }
+.aurora i { position: absolute; border-radius: 50%; mix-blend-mode: screen; animation: drift 26s ease-in-out infinite alternate; }
+:root.light .aurora i { mix-blend-mode: multiply; }
+.aurora i:nth-child(1) { width: 55vw; height: 55vw; left: 5%; top: 0; background: var(--accent); }
+.aurora i:nth-child(2) { width: 45vw; height: 45vw; right: 0; top: 10%; background: #3f74e0; animation-duration: 32s; animation-delay: -8s; }
+.aurora i:nth-child(3) { width: 40vw; height: 40vw; left: 30%; bottom: 0; background: #ffb35c; animation-duration: 38s; animation-delay: -14s; opacity: .7; }
+@keyframes drift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(6vw, 4vh) scale(1.1); }
+  100% { transform: translate(-4vw, 8vh) scale(.95); }
+}
+.grain { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 40%, var(--bg) 100%); }
+main { position: relative; z-index: 1; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 18px; border-radius: 11px; border: 0;
+  background: var(--accent); color: #fff; font: 600 14px var(--font); cursor: pointer; text-decoration: none;
+  transition: filter .15s, transform .12s;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn.ghost { background: var(--glass); color: var(--text); border: 1px solid var(--border); }

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Seite nicht erreichbar</title>
+  <link rel="stylesheet" href="internal.css">
+  <link rel="stylesheet" href="status.css">
+</head>
+<body>
+  <div class="aurora"><i></i><i></i><i></i></div>
+  <div class="grain"></div>
+  <main class="status">
+    <div class="card">
+      <div class="badge" id="badge"></div>
+      <h1 id="title">Diese Seite ist nicht erreichbar</h1>
+      <p id="text"></p>
+      <div class="url" id="url"></div>
+      <div class="actions">
+        <a class="btn" id="retry" href="#">Erneut versuchen</a>
+        <a class="btn ghost" href="caravel://newtab/">Zur Startseite</a>
+      </div>
+      <div class="code" id="code"></div>
+    </div>
+  </main>
+  <script src="status.js"></script>
+</body>
+</html>

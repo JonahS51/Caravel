@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src * data: blob: crx:; media-src *; frame-src data: about:; connect-src 'self'">
+  <title>Caravel</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-dark booting">
+  <div id="app">
+    <!-- ============ Seitenleiste ============ -->
+    <aside id="sidebar">
+      <div class="sb-head drag">
+        <div class="brand no-drag" id="brand" title="Caravel">
+          <svg class="logo" viewBox="20 18 216 216" aria-hidden="true">
+            <defs>
+              <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb35c"/><stop offset="1" stop-color="#f2545b"/></linearGradient>
+            </defs>
+            <circle cx="146" cy="112" r="62" fill="url(#lg)"/>
+            <path d="M118 30v140" stroke="#2a4fae" stroke-width="7" stroke-linecap="round"/>
+            <path d="M121 30l30 9-30 9z" fill="#f2545b"/>
+            <path d="M126 50c46 28 70 72 68 112h-68z" fill="#3f74e0"/>
+            <path d="M110 70c-26 24-42 56-44 92h44z" fill="#86a9f2"/>
+            <path d="M40 174h176c-8 26-36 42-88 42s-80-16-88-42z" fill="#2a4fae"/>
+            <path d="M84 196h88" stroke="#ffb35c" stroke-width="5" stroke-linecap="round"/>
+          </svg>
+          <div class="brand-text">
+            <span class="brand-name">Caravel</span>
+            <span class="space-name" id="space-name">Persönlich</span>
+          </div>
+        </div>
+        <button class="icon-btn no-drag sb-collapse" id="btn-sidebar" title="Seitenleiste ein-/ausklappen (Strg+B)"></button>
+      </div>
+
+      <div id="favorites" class="favorites"></div>
+
+      <button id="btn-newtab" class="new-tab">
+        <span class="nt-plus"></span><span class="label">Neuer Tab</span><kbd>Strg T</kbd>
+      </button>
+
+      <div id="tab-list" class="tab-list scroll"></div>
+
+      <div class="sb-foot">
+        <div id="spaces" class="spaces"></div>
+        <div class="sb-tools" id="sb-tools"></div>
+      </div>
+    </aside>
+
+    <!-- ============ Hauptbereich ============ -->
+    <main id="main">
+      <header id="toolbar" class="drag">
+        <div class="nav no-drag">
+          <button class="icon-btn" id="btn-back" title="Zurück (Alt+←)"></button>
+          <button class="icon-btn" id="btn-forward" title="Vorwärts (Alt+→)"></button>
+          <button class="icon-btn" id="btn-reload" title="Neu laden (F5)"></button>
+        </div>
+
+        <div class="omni-wrap no-drag">
+          <div id="omnibox" class="omnibox">
+            <span class="omni-site" id="omni-site"></span>
+            <input id="omni-input" spellcheck="false" autocomplete="off" placeholder="Suchen oder Adresse eingeben">
+            <div class="omni-actions">
+              <button class="chip-btn" id="btn-adblock" title="Werbeblocker"></button>
+              <button class="icon-btn sm" id="btn-reader" title="Leser-Modus (F9)"></button>
+              <button class="icon-btn sm" id="btn-star" title="Lesezeichen (Strg+D)"></button>
+            </div>
+          </div>
+          <div id="omni-suggest" class="omni-suggest" hidden></div>
+        </div>
+
+        <div class="actions no-drag">
+          <div id="focus-hud" class="focus-hud" hidden></div>
+          <button class="vpn-pill" id="btn-vpn" title="VPN"></button>
+          <button class="icon-btn" id="btn-split" title="Split View (Strg+Umschalt+S)"></button>
+          <button class="icon-btn" id="btn-cast" title="Auf Chromecast streamen"></button>
+          <button class="icon-btn" id="btn-focus" title="Fokus-Modus (Strg+Umschalt+F)"></button>
+          <browser-action-list id="ext-actions" partition="persist:caravel" alignment="bottom left"></browser-action-list>
+          <button class="claude-btn" id="btn-claude" title="Claude-Seitenleiste (Strg+E)"></button>
+          <button class="icon-btn" id="btn-menu" title="Menü"></button>
+        </div>
+        <div class="wco-spacer"></div>
+      </header>
+
+      <!-- Waagrechte Tab-Leiste (Chrome/Safari) und Favoritenleiste; die Elemente aus der
+           Seitenleiste werden je nach Einstellung hierher verschoben (siehe applyTabLayout) -->
+      <div id="tabstrip" class="tabstrip drag" hidden>
+        <div class="ts-spaces no-drag" id="ts-spaces"></div>
+        <div class="ts-tabs" id="ts-tabs"></div>
+        <div class="ts-fill"></div>
+        <div class="wco-spacer"></div>
+      </div>
+      <div id="favbar" class="favbar" hidden></div>
+
+      <div class="content-row">
+        <section id="stage">
+          <div id="views"></div>
+          <div id="split-divider" hidden><span></span></div>
+          <div id="pane-focus" hidden></div>
+          <div id="progress"></div>
+          <div id="findbar" class="findbar" hidden>
+            <input id="find-input" placeholder="Auf Seite suchen" spellcheck="false">
+            <span id="find-count">0/0</span>
+            <button class="icon-btn sm" id="find-prev" title="Vorheriger"></button>
+            <button class="icon-btn sm" id="find-next" title="Nächster"></button>
+            <button class="icon-btn sm" id="find-close" title="Schließen"></button>
+          </div>
+          <div id="reader" class="reader" hidden></div>
+          <div id="drag-shield" hidden></div>
+        </section>
+
+        <aside id="claude-dock" class="claude-dock" hidden>
+          <div class="dock-resize" id="dock-resize"></div>
+          <div class="dock-head">
+            <div class="seg dock-tabs" id="dock-tabs"></div>
+            <span class="grow"></span>
+            <button class="icon-btn sm" id="dock-send" title="Aktuelle Seite an Claude übergeben"></button>
+            <button class="icon-btn sm" id="dock-new" title="Neuer Chat"></button>
+            <button class="icon-btn sm" id="dock-close" title="Schließen (Strg+E)"></button>
+          </div>
+          <div class="dock-body" id="dock-body"></div>
+        </aside>
+
+        <aside id="panel" class="panel" hidden>
+          <div class="panel-head">
+            <h2 id="panel-title"></h2>
+            <button class="icon-btn sm" id="panel-close" title="Schließen"></button>
+          </div>
+          <div id="panel-body" class="panel-body scroll"></div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ Überlagerungen ============ -->
+  <div id="palette" class="overlay" hidden>
+    <div class="palette">
+      <div class="palette-input">
+        <span class="pi-icon"></span>
+        <input id="palette-input" placeholder="Befehl, Tab, Lesezeichen oder Verlauf suchen …" spellcheck="false" autocomplete="off">
+        <kbd>Esc</kbd>
+      </div>
+      <div id="palette-list" class="palette-list scroll"></div>
+      <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> auswählen</span><span><kbd>↵</kbd> ausführen</span><span>Caravel Command</span></div>
+    </div>
+  </div>
+
+  <div id="peek" class="overlay peek-overlay" hidden>
+    <div class="peek">
+      <div class="peek-head">
+        <span class="peek-badge">Peek</span>
+        <span id="peek-url" class="peek-url"></span>
+        <button class="btn ghost sm" id="peek-split">In Split View</button>
+        <button class="btn sm" id="peek-open">Als Tab öffnen</button>
+        <button class="icon-btn sm" id="peek-close" title="Schließen (Esc)"></button>
+      </div>
+      <div id="peek-body" class="peek-body"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="overlay" hidden><div id="modal-card" class="modal"></div></div>
+  <div id="popover" class="popover" hidden></div>
+  <div id="menu" class="menu" hidden></div>
+  <div id="perm" class="perm" hidden></div>
+  <div id="toasts" class="toasts"></div>
+
+  <script src="icons.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

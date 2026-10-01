@@ -1,0 +1,40 @@
+﻿Caravel – Entdecke das Web
+Version 2.0.0
+
+Copyright (C) 2026 Caravel Project
+
+Dieses Programm ist freie Software: Sie können es unter den Bedingungen der
+GNU General Public License, wie von der Free Software Foundation
+veröffentlicht, weitergeben und/oder modifizieren, entweder gemäß Version 3
+der Lizenz oder (nach Ihrer Wahl) jeder neueren Version.
+
+Die Veröffentlichung dieses Programms erfolgt in der Hoffnung, dass es Ihnen
+von Nutzen sein wird, aber OHNE IRGENDEINE GARANTIE, sogar ohne die
+implizite Garantie der MARKTREIFE oder der VERWENDBARKEIT FÜR EINEN
+BESTIMMTEN ZWECK. Details finden Sie in der GNU General Public License:
+https://www.gnu.org/licenses/gpl-3.0.html
+
+------------------------------------------------------------------------
+Verwendete Komponenten
+------------------------------------------------------------------------
+
+- Electron / Chromium (MIT bzw. BSD-Lizenz)
+- electron-chrome-extensions (GPL-3.0) – Unterstützung für Chrome-Erweiterungen
+- electron-chrome-web-store (MIT) – Installation aus dem Chrome Web Store
+- @ghostery/adblocker (MPL-2.0) – Filter-Engine des Werbeblockers
+- Filterlisten von uBlock Origin (GPL-3.0) und EasyList (GPL-3.0 / CC BY-SA 3.0),
+  werden zur Laufzeit von den offiziellen Servern geladen
+- Tor (BSD-3-Clause) – kostenloser VPN-Modus
+- wireproxy (ISC) – WireGuard-Unterstützung
+- chromecast-api (MIT) – Streaming auf Chromecast-Geräte
+- Mozilla Readability (Apache-2.0), Turndown (MIT) – Leser-Modus und Markdown
+
+------------------------------------------------------------------------
+Hinweise
+------------------------------------------------------------------------
+
+Caravel ist ein unabhängiges Projekt und steht in keiner Verbindung zu
+Anthropic, Google oder dem Tor Project. „Claude“ ist eine Marke von
+Anthropic; „Chrome“, „Chromecast“ und „Chrome Web Store“ sind Marken von
+Google LLC. Der Tor-Modus verbirgt die IP-Adresse, bietet aber nicht den
+vollen Anonymitätsschutz des Tor Browsers.

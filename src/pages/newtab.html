@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data:">
+  <title>Neuer Tab</title>
+  <link rel="stylesheet" href="internal.css">
+  <link rel="stylesheet" href="newtab.css">
+</head>
+<body>
+  <div class="aurora"><i></i><i></i><i></i></div>
+  <div class="grain"></div>
+  <main class="ntp">
+    <section class="hero">
+      <div class="clock" id="clock">--:--</div>
+      <div class="greet"><span id="greeting">Hallo</span><span class="sep">·</span><span id="date"></span></div>
+    </section>
+
+    <form class="search" id="search" autocomplete="off">
+      <svg viewBox="0 0 24 24" class="s-ico"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" placeholder="Suchen oder Adresse eingeben" spellcheck="false">
+      <span class="engine" id="engine">Google</span>
+    </form>
+
+    <section class="tiles" id="tiles"></section>
+
+    <footer class="stats" id="stats"></footer>
+  </main>
+  <script src="newtab.js"></script>
+</body>
+</html>

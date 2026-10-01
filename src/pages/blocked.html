@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Fokus-Modus</title>
+  <link rel="stylesheet" href="internal.css">
+  <link rel="stylesheet" href="status.css">
+</head>
+<body>
+  <div class="aurora"><i></i><i></i><i></i></div>
+  <div class="grain"></div>
+  <main class="status">
+    <div class="card center">
+      <div class="breathe"><span></span><span></span><span></span></div>
+      <h1>Du bist im Fokus-Modus</h1>
+      <p><b id="host">Diese Seite</b> ist gesperrt, bis deine Fokus-Session vorbei ist.</p>
+      <p>Atme einmal tief durch – und dann zurück an die Arbeit. Du schaffst das.</p>
+      <div class="actions" style="margin-top:26px">
+        <a class="btn" id="back" href="#">Zurück</a>
+        <a class="btn ghost" href="caravel://newtab/">Neuer Tab</a>
+      </div>
+    </div>
+  </main>
+  <script src="status.js"></script>
+</body>
+</html>

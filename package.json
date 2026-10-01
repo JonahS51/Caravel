@@ -1,0 +1,80 @@
+{
+  "name": "caravel-browser",
+  "productName": "Caravel",
+  "version": "3.0.0",
+  "description": "Caravel – ein Chromium-Browser mit Claude-Integration, Werbeblocker (uBlock-Origin-Filter), eingebautem VPN, Spaces, Split View, Peek und Chromecast.",
+  "main": "src/main/main.js",
+  "author": "Caravel Project",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "start": "electron .",
+    "vendor": "node scripts/fetch-vendor.js",
+    "icons": "electron scripts/make-assets.js",
+    "dist": "node scripts/fetch-vendor.js && electron scripts/make-assets.js && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.18.2",
+    "@mozilla/readability": "^0.6.0",
+    "chromecast-api": "^0.4.2",
+    "electron-chrome-extensions": "^4.9.0",
+    "electron-chrome-web-store": "^0.13.0",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "app.caravel.browser",
+    "productName": "Caravel",
+    "copyright": "© 2026 Caravel Project",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "vendor/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "vendor/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "Caravel"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "license": "build/license.txt",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Caravel",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "installerLanguages": [
+        "de_DE"
+      ],
+      "language": "1031",
+      "artifactName": "Caravel-Setup-${version}.exe"
+    }
+  }
+}
