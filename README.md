@@ -5,13 +5,14 @@ eingebautem VPN, Chrome-Erweiterungen und Chromecast.
 
 ## Installation
 
-`dist/Caravel-Setup-3.0.0.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
+`dist/Caravel-Setup-3.1.0.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
 registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installierte Programm braucht kein Node.js.
 
 ## Funktionen
 
 | Funktion | Bedienung |
 |---|---|
+| **Deutsch und Englisch** – automatisch nach Windows-Sprache oder fest gewählt | Einstellungen › Allgemein › Sprache |
 | **KI-Assistent wählbar** – Claude, ChatGPT oder keiner | Einstellungen › KI-Assistent |
 | **KI-Seitenleiste** – claude.ai bzw. chatgpt.com neben jeder Seite (abschaltbar) | `Strg+E`, Knopf „Claude“/„ChatGPT“ |
 | **Seite an die KI übergeben / zusammenfassen**, Auswahl erklären/übersetzen | `Strg+Umschalt+L`, Rechtsklick |

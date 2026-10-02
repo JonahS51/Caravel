@@ -1,6 +1,11 @@
 'use strict'
 const $ = s => document.querySelector(s)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+// Übersetzungen (shared/i18n.js); die Sprache liefert der Preload
+const I18N = window.CaravelI18n
+I18N.setLang(window.caravelNTP?.lang)
+const T = I18N.t
+I18N.translateDom(document.body)
 const ENGINES = { google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', ecosia: 'Ecosia', startpage: 'Startpage', brave: 'Brave Search' }
 const TIPS = [
   'Umschalt + Klick auf einen Link öffnet eine schwebende Peek-Vorschau.',
@@ -20,20 +25,20 @@ const TIPS = [
 // Tipps zum KI-Assistenten nur zeigen, wenn einer aktiv ist
 function tip (ai) {
   const list = TIPS.filter(t => ai || !t.includes('{ai}'))
-  return list[Math.floor(Math.random() * list.length)].replaceAll('{ai}', ai || '')
+  return T(list[Math.floor(Math.random() * list.length)], { ai: ai || '' })
 }
 
 let template = ''
 
 function tick () {
   const now = new Date()
-  $('#clock').textContent = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-  $('#date').textContent = now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })
+  $('#clock').textContent = now.toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' })
+  $('#date').textContent = now.toLocaleDateString(I18N.locale, { weekday: 'long', day: 'numeric', month: 'long' })
 }
 
 function greeting (name) {
   const h = new Date().getHours()
-  const g = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 17 ? 'Guten Tag' : h < 22 ? 'Guten Abend' : 'Gute Nacht'
+  const g = T(h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 17 ? 'Guten Tag' : h < 22 ? 'Guten Abend' : 'Gute Nacht')
   return name ? `${g}, ${name}` : g
 }
 
@@ -73,7 +78,7 @@ function tileButton (cls, svg, label, onClick) {
   const b = document.createElement('button')
   b.type = 'button'
   b.className = 't-btn ' + cls
-  b.title = label
+  b.title = T(label)
   b.innerHTML = svg
   b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onClick() })
   return b
@@ -119,7 +124,7 @@ function renderFavs (bookmarks) {
   const add = document.createElement('button')
   add.type = 'button'
   add.className = 'tile add'
-  add.innerHTML = `<span class="ico">${SVG.plus}</span><span class="name">Hinzufügen</span>`
+  add.innerHTML = `<span class="ico">${SVG.plus}</span><span class="name">${T('Hinzufügen')}</span>`
   add.addEventListener('click', () => openEditor(null))
   box.append(add)
 }
@@ -148,7 +153,7 @@ function renderTop (topSites, bookmarks) {
 let editing = null
 function openEditor (bm) {
   editing = bm
-  $('#edit-title').textContent = bm ? 'Favorit bearbeiten' : 'Favorit hinzufügen'
+  $('#edit-title').textContent = T(bm ? 'Favorit bearbeiten' : 'Favorit hinzufügen')
   $('#edit-name').value = bm?.title || ''
   $('#edit-url').value = bm?.url || ''
   $('#edit-err').textContent = ''
@@ -167,7 +172,7 @@ function normalize (s) {
 $('#edit-form').addEventListener('submit', e => {
   e.preventDefault()
   const url = normalize($('#edit-url').value)
-  if (!url) { $('#edit-err').textContent = 'Bitte eine gültige Adresse eingeben, z. B. wikipedia.org'; return }
+  if (!url) { $('#edit-err').textContent = T('Bitte eine gültige Adresse eingeben, z. B. wikipedia.org'); return }
   const title = $('#edit-name').value.trim()
   api.bookmark(editing ? 'update' : 'add', { id: editing?.id, url, title })
   $('#edit').close()
@@ -203,12 +208,12 @@ async function init () {
     focus: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/></svg>',
     spark: '<svg viewBox="0 0 24 24"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/></svg>'
   }
-  const blocked = (d.stats?.blocked || 0).toLocaleString('de-DE')
+  const blocked = (d.stats?.blocked || 0).toLocaleString(I18N.locale)
   const fs = d.focusStats || { sessions: 0, minutes: 0 }
   $('#stats').innerHTML =
-    `<span class="chip">${icons.shield}<b>${blocked}</b> Werbung & Tracker blockiert</span>` +
-    (d.vpn ? `<span class="chip">${icons.shield}VPN aktiv · <b>${esc(d.vpn)}</b></span>` : '') +
-    `<span class="chip">${icons.focus}<b>${fs.sessions}</b> Fokus-Sessions · <b>${fs.minutes}</b> Min.</span>` +
+    `<span class="chip">${icons.shield}${T('<b>{n}</b> Werbung & Tracker blockiert', { n: blocked })}</span>` +
+    (d.vpn ? `<span class="chip">${icons.shield}${T('VPN aktiv')} · <b>${esc(d.vpn)}</b></span>` : '') +
+    `<span class="chip">${icons.focus}${T('<b>{s}</b> Fokus-Sessions · <b>{m}</b> Min.', { s: fs.sessions, m: fs.minutes })}</span>` +
     `<span class="chip tip">${icons.spark}${esc(tip(d.assistant))}</span>`
 }
 

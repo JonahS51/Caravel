@@ -18,7 +18,7 @@ const SENDS = new Set([
   'app:default-browser', 'app:relaunch', 'clipboard:write', 'crx:sidepanel-closed'
 ])
 const INVOKES = new Set([
-  'store:all', 'tab:screenshot', 'suggest', 'ext:list', 'ext:remove', 'ext:load-unpacked', 'ext:newtab-override',
+  'store:all', 'app:lang', 'tab:screenshot', 'suggest', 'ext:list', 'ext:remove', 'ext:load-unpacked', 'ext:newtab-override',
   'cast:play', 'cast:pick-file', 'cast:availability', 'cast:page-app', 'cast:start-app', 'cast:mirror-prepare',
   'cast:mirror-start','data:clear', 'app:info', 'adblock:info', 'adblock:update',
   'claude:status', 'claude:install-extension', 'claude:open-extension', 'claude:mcp-new-token', 'codex:install-mcp',

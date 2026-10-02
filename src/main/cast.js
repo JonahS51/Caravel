@@ -8,6 +8,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { EventEmitter } = require('node:events')
 const { Client } = require('castv2')
+const { t } = require('../shared/i18n')
 
 const NS = {
   conn: 'urn:x-cast:com.google.cast.tp.connection',
@@ -124,7 +125,7 @@ class Discovery extends EventEmitter {
   }
 
   dispose () {
-    for (const t of this.timers) { clearTimeout(t); clearInterval(t) }
+    for (const tm of this.timers) { clearTimeout(tm); clearInterval(tm) }
     try { this.mdns?.destroy() } catch {}
     this.mdns = null
   }
@@ -157,7 +158,7 @@ class Receiver extends EventEmitter {
         this.reset()
         reject(err)
       }
-      const timer = setTimeout(() => fail(new Error('Das Gerät antwortet nicht.')), 7000)
+      const timer = setTimeout(() => fail(new Error(t('Das Gerät antwortet nicht.'))), 7000)
       client.once('error', fail)
       client.connect({ host: this.dev.host, port: this.dev.port }, () => {
         if (done) return
@@ -187,13 +188,13 @@ class Receiver extends EventEmitter {
     this.ready = null
     this.joined.clear()
     try { client?.close() } catch {}
-    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('Verbindung zum Gerät getrennt')) }
+    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error(t('Verbindung zum Gerät getrennt'))) }
     this.pending.clear()
     if (client) this.emit('close')
   }
 
   sendRaw (dst, ns, data) {
-    if (!this.client?.ps) throw new Error('Nicht mit dem Gerät verbunden')
+    if (!this.client?.ps) throw new Error(t('Nicht mit dem Gerät verbunden'))
     this.client.send(SENDER, dst, ns, typeof data === 'string' ? data : JSON.stringify(data))
   }
 
@@ -202,7 +203,7 @@ class Receiver extends EventEmitter {
       const id = this.reqId++
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error('Zeitüberschreitung'))
+        reject(new Error(t('Zeitüberschreitung')))
       }, timeout)
       this.pending.set(id, { resolve, reject, timer })
       try {
@@ -261,14 +262,14 @@ class Receiver extends EventEmitter {
   async launch (appId) {
     const res = await this.request('receiver-0', NS.receiver, { type: 'LAUNCH', appId }, 30000)
     if (res.type === 'LAUNCH_ERROR') {
-      throw new Error(res.reason === 'NOT_FOUND' ? 'Diese App gibt es auf dem Gerät nicht.' : 'Die App konnte nicht gestartet werden.')
+      throw new Error(res.reason === 'NOT_FOUND' ? t('Diese App gibt es auf dem Gerät nicht.') : t('Die App konnte nicht gestartet werden.'))
     }
     let app = (res.status?.applications || []).find(a => a.appId === appId)
     for (let i = 0; !app && i < 40; i++) {
       await new Promise(r => setTimeout(r, 250))
       app = (this.status?.applications || []).find(a => a.appId === appId)
     }
-    if (!app) throw new Error('Die App wurde nicht gestartet.')
+    if (!app) throw new Error(t('Die App wurde nicht gestartet.'))
     return app
   }
 
@@ -448,7 +449,7 @@ class CastManager {
     const dev = this.discovery.devices.get(deviceId)
     if (rx && dev && (rx.dev.host !== dev.host || rx.dev.port !== dev.port)) { rx.reset(); rx.dev = dev }
     if (rx) return rx
-    if (!dev) throw new Error('Gerät nicht gefunden')
+    if (!dev) throw new Error(t('Gerät nicht gefunden'))
     rx = new Receiver(dev)
     rx.on('status', () => { this.onReceiverStatus(deviceId); this.emitDevices() })
     rx.on('message', m => this.onReceiverMessage(deviceId, m))
@@ -620,7 +621,7 @@ class CastManager {
     }, 30000)
     if (res.type !== 'MEDIA_STATUS') {
       this.stop(deviceId)
-      throw new Error(res.type === 'LOAD_FAILED' ? 'Das Gerät konnte das Medium nicht laden.' : `Fehler des Geräts (${res.type})`)
+      throw new Error(res.type === 'LOAD_FAILED' ? t('Das Gerät konnte das Medium nicht laden.') : t('Fehler des Geräts ({type})', { type: res.type }))
     }
     return true
   }
@@ -667,7 +668,7 @@ class CastManager {
   }
 
   async mirror (deviceId, { token, kind, title, audioOnly, wcId }) {
-    if (!this.streams.has(token)) throw new Error('Kein Stream vorhanden')
+    if (!this.streams.has(token)) throw new Error(t('Kein Stream vorhanden'))
     const port = await this.ensureServer()
     const url = `http://${lanAddress()}:${port}/live/${token}.webm`
     return this.play(deviceId, {
@@ -825,7 +826,7 @@ class CastManager {
     const rx = this.receivers.get(act.deviceId)
     const seq = msg.sequenceNumber
     const fail = (description) => this.reply(connId, c, 'error', { code: 'session_error', description, details: null }, seq)
-    if (!rx || this.activities.get(act.deviceId) !== act) return fail('Sitzung beendet')
+    if (!rx || this.activities.get(act.deviceId) !== act) return fail(t('Sitzung beendet'))
 
     switch (msg.type) {
       case 'client_connect':
@@ -871,7 +872,7 @@ class CastManager {
         return
       }
       default:
-        fail('Nicht unterstützt: ' + msg.type)
+        fail(t('Nicht unterstützt: {type}', { type: msg.type }))
     }
   }
 

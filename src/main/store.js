@@ -4,6 +4,7 @@ const path = require('node:path')
 
 const DEFAULTS = {
   settings: {
+    language: 'auto', // 'auto' (Systemsprache) | 'de' | 'en'
     searchEngine: 'google',
     theme: 'dark',
     ambient: true,
@@ -63,6 +64,7 @@ class Store {
   constructor (dir) {
     this.file = path.join(dir, 'caravel-data.json')
     this.data = structuredClone(DEFAULTS)
+    this.fresh = !fs.existsSync(this.file)
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))
       for (const key of Object.keys(DEFAULTS)) {

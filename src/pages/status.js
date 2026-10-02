@@ -2,6 +2,11 @@
 const params = new URLSearchParams(location.search)
 const target = params.get('url') || ''
 const $ = s => document.getElementById(s)
+// Übersetzungen (shared/i18n.js); die Sprache liefert der Preload
+const I18N = window.CaravelI18n
+I18N.setLang(window.caravelNTP?.lang)
+const T = I18N.t
+I18N.translateDom(document.body)
 
 const ICONS = {
   offline: '<svg viewBox="0 0 24 24"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01"/><path d="M3 3l18 18"/></svg>',
@@ -12,6 +17,10 @@ const ICONS = {
 }
 
 function describe (code) {
+  return describeDe(code).map((s, i) => (i ? T(s) : s))
+}
+
+function describeDe (code) {
   const c = String(code)
   if (c === 'crash') return ['crash', 'Hoppla – diese Seite ist abgestürzt', 'Der Prozess dieser Seite wurde unerwartet beendet. Andere Tabs sind davon nicht betroffen.']
   const n = parseInt(c, 10)
@@ -29,7 +38,7 @@ if ($('badge')) {
   $('title').textContent = title
   $('text').textContent = text
   $('url').textContent = target
-  $('code').textContent = `Fehlercode: ${params.get('desc') || params.get('code')}`
+  $('code').textContent = T('Fehlercode: {code}', { code: params.get('desc') || params.get('code') })
   document.title = title
   $('retry').addEventListener('click', e => { e.preventDefault(); if (target) location.href = target })
   if (params.get('code') === '-106') window.addEventListener('online', () => { if (target) location.href = target })

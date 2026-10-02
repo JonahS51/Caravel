@@ -4,6 +4,9 @@
    ===================================================================== */
 
 const A = window.caravel
+// Übersetzungen (src/shared/i18n.js): T('deutscher Text', { platzhalter }) – die Sprache wird in boot() gesetzt
+const I18N = window.CaravelI18n
+const T = I18N.t
 const $ = (s, r = document) => r.querySelector(s)
 const $$ = (s, r = document) => [...r.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
@@ -125,17 +128,17 @@ function isDark () {
 
 function timeAgo (ts) {
   const d = (Date.now() - ts) / 1000
-  if (d < 60) return 'gerade eben'
-  if (d < 3600) return `vor ${Math.floor(d / 60)} Min.`
-  if (d < 86400) return `vor ${Math.floor(d / 3600)} Std.`
-  return new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })
+  if (d < 60) return T('gerade eben')
+  if (d < 3600) return T('vor {n} Min.', { n: Math.floor(d / 60) })
+  if (d < 86400) return T('vor {n} Std.', { n: Math.floor(d / 3600) })
+  return new Date(ts).toLocaleDateString(I18N.locale, { day: '2-digit', month: 'short' })
 }
 
 function fmtBytes (n) {
   if (!n) return '0 B'
   const u = ['B', 'KB', 'MB', 'GB']
   const i = Math.min(3, Math.floor(Math.log(n) / Math.log(1024)))
-  return (n / 1024 ** i).toFixed(i ? 1 : 0).replace('.', ',') + ' ' + u[i]
+  return (n / 1024 ** i).toLocaleString(I18N.locale, { maximumFractionDigits: i ? 1 : 0, minimumFractionDigits: i ? 1 : 0 }) + ' ' + u[i]
 }
 
 function fmtTime (s) {
@@ -194,7 +197,7 @@ function createTab ({ url = null, spaceId = S.activeSpace, background = false, p
     id: 't' + (++tabSeq),
     spaceId: sp.id,
     url: url || NEWTAB,
-    title: title || (url ? hostOf(url) || url : 'Neuer Tab'),
+    title: title || (url ? hostOf(url) || url : T('Neuer Tab')),
     favicon: favicon || null,
     pinned,
     sleeping: true,
@@ -295,7 +298,7 @@ function bindWebview (tab, wv) {
   })
   const onNav = url => {
     tab.url = url
-    if (isNewtab(url)) { tab.title = 'Neuer Tab'; tab.favicon = null; tab.themeColor = null }
+    if (isNewtab(url)) { tab.title = T('Neuer Tab'); tab.favicon = null; tab.themeColor = null }
     recordHistory(tab)
     updateTabEl(tab)
     if (isActive()) { updateNav(); updateOmnibox(); updateAmbient() }
@@ -329,7 +332,7 @@ function bindWebview (tab, wv) {
   })
   wv.addEventListener('render-process-gone', () => {
     tab.loading = false
-    const target = `caravel://error/?code=crash&desc=${encodeURIComponent('Die Seite ist abgestürzt')}&url=${encodeURIComponent(tab.url)}`
+    const target = `caravel://error/?code=crash&desc=${encodeURIComponent(T('Die Seite ist abgestürzt'))}&url=${encodeURIComponent(tab.url)}`
     setTimeout(() => wv.loadURL(target).catch(() => {}), 50)
   })
   wv.addEventListener('media-started-playing', () => { tab.audible = true; updateTabEl(tab) })
@@ -480,7 +483,7 @@ function moveTabToSpace (tab, spaceId) {
   layout()
   renderTabs()
   saveSession()
-  toast(`In „${to.name}“ verschoben`, tab.title, 'layers')
+  toast(T('In „{name}“ verschoben', { name: to.name }), tab.title, 'layers')
 }
 
 function saveSession () {
@@ -577,14 +580,14 @@ function editSpaceDialog (sp) {
   let color = sp?.color || SPACE_COLORS[S.spaces.length % SPACE_COLORS.length]
   let ic = sp?.icon || SPACE_ICONS[S.spaces.length % SPACE_ICONS.length]
   showModal(`
-    <div class="modal-head"><h2>${isNew ? 'Neuer Space' : 'Space bearbeiten'}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
+    <div class="modal-head"><h2>${isNew ? T('Neuer Space') : T('Space bearbeiten')}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
     <div class="modal-body">
-      <p class="muted" style="margin-top:0">Spaces sind getrennte Arbeitsbereiche mit eigenen Tabs, eigener Farbe und eigener Zeitkapsel.</p>
-      <div class="field"><label>Name</label><input class="input" id="sp-name" value="${esc(sp?.name || '')}" placeholder="z. B. Uni, Projekt, Freizeit"></div>
-      <div class="field"><label>Symbol</label><div class="swatches" id="sp-icons">${SPACE_ICONS.map(i => `<button class="space-btn ${i === ic ? 'active' : ''}" style="--sc:${color}" data-i="${i}">${i}</button>`).join('')}</div></div>
-      <div class="field"><label>Farbe</label><div class="swatches" id="sp-colors">${SPACE_COLORS.map(c => `<button class="swatch ${c === color ? 'on' : ''}" style="--c:${c}" data-c="${c}"></button>`).join('')}</div></div>
+      <p class="muted" style="margin-top:0">${T('Spaces sind getrennte Arbeitsbereiche mit eigenen Tabs, eigener Farbe und eigener Zeitkapsel.')}</p>
+      <div class="field"><label>${T('Name')}</label><input class="input" id="sp-name" value="${esc(sp?.name || '')}" placeholder="${T('z. B. Uni, Projekt, Freizeit')}"></div>
+      <div class="field"><label>${T('Symbol')}</label><div class="swatches" id="sp-icons">${SPACE_ICONS.map(i => `<button class="space-btn ${i === ic ? 'active' : ''}" style="--sc:${color}" data-i="${i}">${i}</button>`).join('')}</div></div>
+      <div class="field"><label>${T('Farbe')}</label><div class="swatches" id="sp-colors">${SPACE_COLORS.map(c => `<button class="swatch ${c === color ? 'on' : ''}" style="--c:${c}" data-c="${c}"></button>`).join('')}</div></div>
     </div>
-    <div class="modal-foot"><button class="btn ghost" data-close>Abbrechen</button><button class="btn" id="sp-save">${isNew ? 'Space erstellen' : 'Speichern'}</button></div>`)
+    <div class="modal-foot"><button class="btn ghost" data-close>${T('Abbrechen')}</button><button class="btn" id="sp-save">${isNew ? T('Space erstellen') : T('Speichern')}</button></div>`)
   const card = $('#modal-card')
   $('#sp-name').focus()
   $('#sp-icons').addEventListener('click', e => {
@@ -598,14 +601,17 @@ function editSpaceDialog (sp) {
     $$('#sp-colors .swatch').forEach(x => x.classList.toggle('on', x === b))
     $$('#sp-icons .space-btn').forEach(x => x.style.setProperty('--sc', color))
   })
+  let done = false
   const submit = () => {
+    if (done) return
+    done = true
     const name = $('#sp-name').value.trim() || 'Space'
     closeModal()
     if (isNew) addSpace({ name, color, icon: ic })
     else { Object.assign(sp, { name, color, icon: ic }); applyAccent(); renderSpaces(); saveSession() }
   }
   $('#sp-save').onclick = submit
-  card.addEventListener('keydown', e => { if (e.key === 'Enter') submit() })
+  card.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit() } })
 }
 
 /* ---------------------------------------------------------------------
@@ -881,9 +887,11 @@ function layoutFavbar () {
   }
 }
 
+const sameUrl = (a, b) => String(a || '').replace(/[#/]+$/, '') === String(b || '').replace(/[#/]+$/, '')
+
 function openBookmark (bm) {
   const sp = curSpace()
-  const existing = spaceTabs(sp).find(t => hostOf(t.url) === hostOf(bm.url))
+  const existing = spaceTabs(sp).find(t => sameUrl(t.url, bm.url))
   if (existing) return activate(existing.id)
   const cur = activeTab()
   if (cur && isNewtab(cur.url)) loadInTab(cur, bm.url)
@@ -899,9 +907,9 @@ function renderTabs () {
   const pinned = tabs.filter(t => t.pinned)
   const normal = tabs.filter(t => !t.pinned)
   if (pinned.length) {
-    list.insertAdjacentHTML('beforeend', '<div class="tab-section">Angeheftet</div>')
+    list.insertAdjacentHTML('beforeend', `<div class="tab-section">${T('Angeheftet')}</div>`)
     pinned.forEach(t => list.append(tabEl(t)))
-    list.insertAdjacentHTML('beforeend', '<div class="tab-section">Tabs</div>')
+    list.insertAdjacentHTML('beforeend', `<div class="tab-section">${T('Tabs')}</div>`)
   }
   normal.forEach(t => list.append(tabEl(t)))
   renderFavorites()
@@ -912,7 +920,7 @@ function tabEl (tab) {
   el.className = 'tab'
   el.draggable = true
   el.dataset.id = tab.id
-  el.innerHTML = `<span class="fav-ico"></span><span class="title"></span><span class="badge audio"></span><span class="badge state"></span><button class="close" title="Tab schließen (Strg+W)">${icon('x')}</button>`
+  el.innerHTML = `<span class="fav-ico"></span><span class="title"></span><span class="badge audio"></span><span class="badge state"></span><button class="close" title="${T('Tab schließen (Strg+W)')}">${icon('x')}</button>`
   el.addEventListener('mousedown', e => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id) } })
   el.addEventListener('click', e => {
     if (e.target.closest('.close')) return closeTab(tab.id)
@@ -965,21 +973,21 @@ function updateTabEl (tab) {
   fav.innerHTML = ''
   if (tab.loading) fav.innerHTML = '<span class="spinner"></span>'
   else fav.append(faviconEl(tab.favicon, tab.url))
-  $('.title', el).textContent = tab.title || prettyUrl(tab.url) || 'Neuer Tab'
-  el.title = `${tab.title}\n${displayUrl(tab.url) || 'Neuer Tab'}${tab.sleeping ? '\n💤 Schläft – spart Arbeitsspeicher' : ''}`
+  $('.title', el).textContent = tab.title || prettyUrl(tab.url) || T('Neuer Tab')
+  el.title = `${tab.title}\n${displayUrl(tab.url) || T('Neuer Tab')}${tab.sleeping ? '\n💤 ' + T('Schläft – spart Arbeitsspeicher') : ''}`
   $('.audio', el).innerHTML = tab.audible || tab.muted ? icon(tab.muted ? 'mute' : 'volume') : ''
-  $('.audio', el).title = tab.muted ? 'Ton an' : 'Stummschalten'
+  $('.audio', el).title = tab.muted ? T('Ton an') : T('Stummschalten')
   const agent = tab.wcId && S.agentTabs.has(tab.wcId)
   const state = $('.state', el)
   state.classList.toggle('agent', !!agent)
-  state.title = agent ? 'Ein KI-Agent steuert diesen Tab' : ''
+  state.title = agent ? T('Ein KI-Agent steuert diesen Tab') : ''
   state.innerHTML = agent ? icon('agent') : tab.sleeping ? icon('zzz') : tab.pinned ? `<span class="pin-dot">${icon('pin')}</span>` : ''
   const group = tab.wcId && S.tabGroups[tab.wcId]
   let bar = $('.group-bar', el)
   if (group) {
     if (!bar) { bar = document.createElement('span'); el.prepend(bar) }
     bar.className = `group-bar tg-${group.color}`
-    bar.title = group.title ? `Gruppe „${group.title}“` : 'Tab-Gruppe'
+    bar.title = group.title ? T('Gruppe „{name}“', { name: group.title }) : T('Tab-Gruppe')
   } else if (bar) bar.remove()
 }
 
@@ -993,7 +1001,7 @@ function tabMenu (e, tab) {
     { label: tab.muted ? 'Ton einschalten' : 'Stummschalten', icon: tab.muted ? 'volume' : 'mute', run: () => toggleMute(tab) },
     { label: 'Neben aktivem Tab (Split View)', icon: 'split', hint: 'Umschalt+Klick', run: () => splitWith(tab.id), hidden: tab.id === sp.activeId },
     { label: 'Schlafen legen', icon: 'zzz', run: () => sleepTab(tab), hidden: tab.sleeping || isVisible(tab) },
-    ...(others.length ? ['-', ...others.map(o => ({ label: `Nach „${o.name}“ verschieben`, icon: 'layers', run: () => moveTabToSpace(tab, o.id) }))] : []),
+    ...(others.length ? ['-', ...others.map(o => ({ label: T('Nach „{name}“ verschieben', { name: o.name }), icon: 'layers', run: () => moveTabToSpace(tab, o.id) }))] : []),
     '-',
     { label: 'Andere Tabs schließen', icon: 'x', run: () => spaceTabs(sp).filter(t => t !== tab && !t.pinned).forEach(t => closeTab(t.id)) },
     { label: 'Tab schließen', icon: 'x', hint: 'Strg+W', danger: true, run: () => closeTab(tab.id) }
@@ -1016,7 +1024,7 @@ function renderSpaces () {
       { label: 'Zeitkapsel speichern', icon: 'archive', run: () => saveSnapshot(sp) },
       { label: 'Alle Tabs schlafen legen', icon: 'zzz', run: () => spaceTabs(sp).forEach(sleepTab) },
       '-',
-      { label: 'Space löschen', icon: 'trash', danger: true, run: () => confirmDialog(`„${sp.name}“ löschen?`, 'Alle Tabs dieses Spaces werden geschlossen. Tipp: Speichere vorher eine Zeitkapsel.', 'Löschen', () => deleteSpace(sp)) }
+      { label: 'Space löschen', icon: 'trash', danger: true, run: () => confirmDialog(T('„{name}“ löschen?', { name: sp.name }), 'Alle Tabs dieses Spaces werden geschlossen. Tipp: Speichere vorher eine Zeitkapsel.', 'Löschen', () => deleteSpace(sp)) }
     ])
     b.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/caravel-tab')) { e.preventDefault(); b.classList.add('drop') } })
     b.addEventListener('dragleave', () => b.classList.remove('drop'))
@@ -1030,7 +1038,7 @@ function renderSpaces () {
   const add = document.createElement('button')
   add.className = 'space-btn add'
   add.innerHTML = icon('plus')
-  add.title = 'Neuer Space'
+  add.title = T('Neuer Space')
   add.onclick = () => editSpaceDialog(null)
   box.append(add)
 }
@@ -1049,14 +1057,14 @@ function renderSbTools () {
     const b = document.createElement('button')
     b.className = 'icon-btn' + (S.panel === panel ? ' on' : '')
     b.dataset.panel = panel
-    b.title = title
+    b.title = T(title)
     b.innerHTML = icon(ic)
     b.onclick = () => togglePanel(panel)
     box.append(b)
   }
   const s = document.createElement('button')
   s.className = 'icon-btn'
-  s.title = 'Einstellungen (Strg+,)'
+  s.title = T('Einstellungen (Strg+,)')
   s.innerHTML = icon('settings')
   s.onclick = () => openSettings()
   box.append(s)
@@ -1151,7 +1159,7 @@ function updateNav () {
   $('#btn-back').disabled = !(ready && t.webview.canGoBack())
   $('#btn-forward').disabled = !(ready && t.webview.canGoForward())
   $('#btn-reload').innerHTML = icon(t?.loading ? 'x' : 'reload')
-  $('#btn-reload').title = t?.loading ? 'Laden abbrechen' : 'Neu laden (F5)'
+  $('#btn-reload').title = t?.loading ? T('Laden abbrechen') : T('Neu laden (F5)')
   updateAdblockChip()
   const bm = t && !!bmByUrl(t.url)
   $('#btn-star').classList.toggle('on', !!bm)
@@ -1171,7 +1179,7 @@ function updateOmnibox () {
   site.className = 'omni-site'
   if (isNewtab(url) || url.startsWith('caravel:')) site.innerHTML = icon('search')
   else if (url.startsWith('https:')) { site.classList.add('secure'); site.innerHTML = icon('lock') }
-  else if (url.startsWith('http:')) site.innerHTML = `${icon('warning')}<span class="host-pill">Nicht sicher</span>`
+  else if (url.startsWith('http:')) site.innerHTML = `${icon('warning')}<span class="host-pill">${T('Nicht sicher')}</span>`
   else if (url.startsWith('file:')) site.innerHTML = icon('file')
   else if (url.startsWith('chrome-extension:')) site.innerHTML = icon('puzzle')
   else site.innerHTML = icon('globe')
@@ -1189,7 +1197,7 @@ function updateAdblockChip () {
   b.classList.toggle('active', on)
   b.classList.toggle('has', on && t?.blocked > 0)
   b.innerHTML = `${icon(on ? 'shieldCheck' : 'shield')}${on && t?.blocked ? `<span>${t.blocked}</span>` : ''}`
-  b.title = on ? `Werbeblocker: ${t?.blocked || 0} Anfragen auf dieser Seite blockiert` : 'Werbeblocker ist hier pausiert'
+  b.title = on ? T('Werbeblocker: {n} Anfragen auf dieser Seite blockiert', { n: t?.blocked || 0 }) : T('Werbeblocker ist hier pausiert')
 }
 
 function updateAmbient () {
@@ -1266,15 +1274,15 @@ function initOmnibox () {
     const target = toUrl(q)
     const isUrl = target && !target.startsWith(searchUrl(''))
     items = [isUrl
-      ? { title: q, html: `${esc(q)}`, icon: 'globe', fav: false, tag: 'Öffnen', target }
-      : { title: q, html: `${esc(q)}`, icon: 'search', fav: false, tag: `${SEARCH_ENGINES[settings().searchEngine]?.name || 'Google'}-Suche`, target: searchUrl(q) }]
+      ? { title: q, html: `${esc(q)}`, icon: 'globe', fav: false, tag: T('Öffnen'), target }
+      : { title: q, html: `${esc(q)}`, icon: 'search', fav: false, tag: T('{engine}-Suche', { engine: SEARCH_ENGINES[settings().searchEngine]?.name || 'Google' }), target: searchUrl(q) }]
     const ql = q.toLowerCase()
     const seen = new Set()
     for (const t of S.tabs.values()) {
       if (items.length > 3) break
       if (isNewtab(t.url) || t.id === curSpace().activeId) continue
       if ((t.title + ' ' + t.url).toLowerCase().includes(ql)) {
-        items.push({ title: t.title, html: hl(t.title, q), url: t.url, favicon: t.favicon, tag: 'Zu Tab wechseln', tabId: t.id })
+        items.push({ title: t.title, html: hl(t.title, q), url: t.url, favicon: t.favicon, tag: T('Zu Tab wechseln'), tabId: t.id })
         seen.add(t.url)
       }
     }
@@ -1282,7 +1290,7 @@ function initOmnibox () {
       if (items.length > 5) break
       if (seen.has(b.url)) continue
       if ((b.title + ' ' + b.url).toLowerCase().includes(ql)) {
-        items.push({ title: b.title, html: hl(b.title, q), sub: hostOf(b.url), url: b.url, favicon: b.favicon, tag: 'Lesezeichen', target: b.url })
+        items.push({ title: b.title, html: hl(b.title, q), sub: hostOf(b.url), url: b.url, favicon: b.favicon, tag: T('Lesezeichen'), target: b.url })
         seen.add(b.url)
       }
     }
@@ -1290,7 +1298,7 @@ function initOmnibox () {
       if (items.length > 8) break
       if (seen.has(h.url)) continue
       if ((h.title + ' ' + h.url).toLowerCase().includes(ql)) {
-        items.push({ title: h.title, html: hl(h.title || h.url, q), sub: hostOf(h.url), url: h.url, tag: 'Verlauf', target: h.url })
+        items.push({ title: h.title, html: hl(h.title || h.url, q), sub: hostOf(h.url), url: h.url, tag: T('Verlauf'), target: h.url })
         seen.add(h.url)
       }
     }
@@ -1396,7 +1404,7 @@ function addBookmark ({ url, title, favicon }, { folderId = null } = {}) {
 }
 
 function addFolder (title) {
-  const f = { id: bmNewId(), folder: true, title: title || 'Neuer Ordner', children: [] }
+  const f = { id: bmNewId(), folder: true, title: title || T('Neuer Ordner'), children: [] }
   S.data.bookmarks.push(f)
   saveBookmarks()
   return f
@@ -1407,7 +1415,7 @@ function removeBookmarkId (id) {
   if (!loc) return
   loc.list.splice(loc.index, 1)
   saveBookmarks()
-  const what = isFolder(loc.item) ? `Ordner „${loc.item.title}“` : (loc.item.title || hostOf(loc.item.url))
+  const what = isFolder(loc.item) ? T('Ordner „{name}“', { name: loc.item.title }) : (loc.item.title || hostOf(loc.item.url))
   toast('Aus Favoriten entfernt', what, 'trash', {
     actions: [{ label: 'Rückgängig', run: () => { loc.list.splice(Math.min(loc.index, loc.list.length), 0, loc.item); saveBookmarks() } }]
   })
@@ -1448,7 +1456,7 @@ function moveToFolder (id, folderId) {
 }
 
 function folderOptions (selected) {
-  return `<option value="">Favoritenleiste</option>` +
+  return `<option value="">${T('Favoritenleiste')}</option>` +
     S.data.bookmarks.filter(isFolder).map(f => `<option value="${esc(f.id)}" ${f.id === selected ? 'selected' : ''}>${esc(f.title)}</option>`).join('')
 }
 
@@ -1457,33 +1465,37 @@ function editBookmarkDialog (bm, { kind = null, defaults = {} } = {}) {
   const isNew = !bm
   const folder = isNew ? kind === 'folder' : isFolder(bm)
   const parent = bm ? bmLocate(bm.id)?.parent?.id || '' : (defaults.folderId || '')
-  const heading = folder ? (isNew ? 'Neuer Ordner' : 'Ordner umbenennen') : (isNew ? 'Favorit hinzufügen' : 'Favorit bearbeiten')
+  const heading = T(folder ? (isNew ? 'Neuer Ordner' : 'Ordner umbenennen') : (isNew ? 'Favorit hinzufügen' : 'Favorit bearbeiten'))
   showModal(`
     <div class="modal-head"><h2>${heading}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
     <div class="modal-body">
-      <div class="field"><label>Name</label><input class="input" id="bm-title" value="${esc(bm?.title || defaults.title || '')}" placeholder="${folder ? 'z. B. Arbeit' : 'z. B. Nachrichten'}"></div>
+      <div class="field"><label>${T('Name')}</label><input class="input" id="bm-title" value="${esc(bm?.title || defaults.title || '')}" placeholder="${T(folder ? 'z. B. Arbeit' : 'z. B. Nachrichten')}"></div>
       ${folder ? '' : `
-      <div class="field"><label>Adresse</label><input class="input" id="bm-url" value="${esc(bm?.url || defaults.url || '')}" placeholder="z. B. tagesschau.de" spellcheck="false"></div>
-      <div class="field"><label>Ordner</label><select class="input" id="bm-folder">${folderOptions(parent)}</select></div>`}
+      <div class="field"><label>${T('Adresse')}</label><input class="input" id="bm-url" value="${esc(bm?.url || defaults.url || '')}" placeholder="${T('z. B. tagesschau.de')}" spellcheck="false"></div>
+      <div class="field"><label>${T('Ordner')}</label><select class="input" id="bm-folder">${folderOptions(parent)}</select></div>`}
       <div class="muted" id="bm-err" style="color:#f87171;min-height:16px;font-size:12px"></div>
     </div>
     <div class="modal-foot">
-      ${isNew ? '' : '<button class="btn ghost" id="bm-del" style="color:#f87171">Entfernen</button><span class="grow"></span>'}
-      <button class="btn ghost" data-close>Abbrechen</button>
-      <button class="btn" id="bm-save">${isNew ? 'Hinzufügen' : 'Speichern'}</button>
+      ${isNew ? '' : `<button class="btn ghost" id="bm-del" style="color:#f87171">${T('Entfernen')}</button><span class="grow"></span>`}
+      <button class="btn ghost" data-close>${T('Abbrechen')}</button>
+      <button class="btn" id="bm-save">${isNew ? T('Hinzufügen') : T('Speichern')}</button>
     </div>`)
   const title = $('#bm-title')
   ;(folder || bm ? title : $('#bm-url') || title).focus()
+  let done = false // Enter im Feld und Klick dürfen nicht doppelt speichern
   const submit = () => {
+    if (done) return
     const name = title.value.trim()
     if (folder) {
+      done = true
       if (isNew) addFolder(name)
       else { bm.title = name || bm.title; saveBookmarks() }
       return closeModal()
     }
     const url = normalizeBookmarkUrl($('#bm-url').value)
-    if (!url) { $('#bm-err').textContent = 'Bitte eine gültige Adresse eingeben.'; return $('#bm-url').focus() }
+    if (!url) { $('#bm-err').textContent = T('Bitte eine gültige Adresse eingeben.'); return $('#bm-url').focus() }
     const folderId = $('#bm-folder').value || null
+    done = true
     if (isNew) addBookmark({ url, title: name || hostOf(url) }, { folderId })
     else {
       if (bm.url !== url) bm.favicon = null
@@ -1509,17 +1521,16 @@ function toggleBookmark () {
   if (!bm) bm = addBookmark({ url: t.url, title: t.title, favicon: t.favicon })
   const parent = bmLocate(bm.id)?.parent?.id || ''
   const html = `
-    <h3>${icon('star')} ${added ? 'Zu Favoriten hinzugefügt' : 'Favorit bearbeiten'}</h3>
-    <div class="field"><label>Name</label><input class="input" id="bb-title" value="${esc(bm.title)}"></div>
-    <div class="field"><label>Ordner</label><select class="input" id="bb-folder">${folderOptions(parent)}<option value="__new">Neuer Ordner …</option></select></div>
-    <div class="flex" id="bb-newrow" hidden style="gap:8px;margin-top:8px"><input class="input grow" id="bb-newname" placeholder="Name des Ordners"><button class="btn ghost sm" id="bb-newok">Anlegen</button></div>
+    <h3>${icon('star')} ${added ? T('Zu Favoriten hinzugefügt') : T('Favorit bearbeiten')}</h3>
+    <div class="field"><label>${T('Name')}</label><input class="input" id="bb-title" value="${esc(bm.title)}"></div>
+    <div class="field"><label>${T('Ordner')}</label><select class="input" id="bb-folder">${folderOptions(parent)}<option value="__new">${T('Neuer Ordner …')}</option></select></div>
+    <div class="flex" id="bb-newrow" hidden style="gap:8px;margin-top:8px"><input class="input grow" id="bb-newname" placeholder="${T('Name des Ordners')}"><button class="btn ghost sm" id="bb-newok">${T('Anlegen')}</button></div>
     <div class="flex" style="margin-top:14px;gap:8px">
-      <button class="btn ghost sm" id="bb-more">Mehr …</button><span class="grow"></span>
-      <button class="btn ghost sm" id="bb-remove">Entfernen</button>
-      <button class="btn sm" id="bb-done">Fertig</button>
+      <button class="btn ghost sm" id="bb-more">${T('Mehr …')}</button><span class="grow"></span>
+      <button class="btn ghost sm" id="bb-remove">${T('Entfernen')}</button>
+      <button class="btn sm" id="bb-done">${T('Fertig')}</button>
     </div>`
-  $('#popover').style.width = '320px'
-  const pop = showPopover($('#btn-star'), html, 'bookmark')
+  const pop = showPopover($('#btn-star'), html, 'bookmark', 320)
   const input = $('#bb-title', pop)
   input.select()
   input.oninput = () => { bm.title = input.value; saveBookmarks() }
@@ -1536,7 +1547,7 @@ function toggleBookmark () {
     if (!name) return
     const f = addFolder(name)
     moveToFolder(bm.id, f.id)
-    select.innerHTML = folderOptions(f.id) + '<option value="__new">Neuer Ordner …</option>'
+    select.innerHTML = folderOptions(f.id) + `<option value="__new">${T('Neuer Ordner …')}</option>`
     newRow.hidden = true
   }
   $('#bb-newok', pop).onclick = createFolder
@@ -1586,7 +1597,8 @@ function showMenu (x, y, items) {
     if (it.custom) { m.append(it.custom); continue }
     const el = document.createElement('div')
     el.className = 'm-item' + (it.danger ? ' danger' : '')
-    el.innerHTML = `${it.fav ? '' : icon(it.icon || 'dots')}<span class="m-label">${esc(it.label)}</span>${it.hint ? `<span class="m-hint">${esc(it.hint)}</span>` : ''}`
+    // Menütexte zentral übersetzen (Favoriten im Menü sind Nutzerinhalt)
+    el.innerHTML = `${it.fav ? '' : icon(it.icon || 'dots')}<span class="m-label">${esc(it.fav ? it.label : T(it.label))}</span>${it.hint ? `<span class="m-hint">${esc(T(it.hint))}</span>` : ''}`
     if (it.fav) el.prepend(faviconEl(it.fav.favicon, it.fav.url, 16)) // Favoriten im Menü mit Website-Symbol
     el.onclick = () => { hideMenu(); it.run() }
     m.append(el)
@@ -1598,9 +1610,11 @@ function showMenu (x, y, items) {
 }
 function hideMenu () { $('#menu').hidden = true }
 
-function showPopover (anchor, html, name) {
+// width: feste Breite in px – wird vor dem Ausrichten gesetzt (sonst erbte das Popover die Breite des zuletzt geöffneten)
+function showPopover (anchor, html, name, width = null) {
   const p = $('#popover')
   if (S.popover === 'cast' && name !== 'cast') castDialogClosed()
+  p.style.width = width ? width + 'px' : ''
   p.innerHTML = html
   p.hidden = false
   S.popover = name
@@ -1633,25 +1647,27 @@ function showModal (html, { wide = false } = {}) {
 function closeModal () { $('#modal').hidden = true; $('#modal-card').innerHTML = '' }
 
 function confirmDialog (title, text, okLabel, onOk) {
-  showModal(`<div class="modal-head"><h2>${esc(title)}</h2></div><div class="modal-body"><p class="muted" style="margin:0">${esc(text)}</p></div><div class="modal-foot"><button class="btn ghost" data-close>Abbrechen</button><button class="btn danger" id="cf-ok">${esc(okLabel)}</button></div>`)
+  showModal(`<div class="modal-head"><h2>${esc(T(title))}</h2></div><div class="modal-body"><p class="muted" style="margin:0">${esc(T(text))}</p></div><div class="modal-foot"><button class="btn ghost" data-close>${T('Abbrechen')}</button><button class="btn danger" id="cf-ok">${esc(T(okLabel))}</button></div>`)
   $('#cf-ok').onclick = () => { closeModal(); onOk() }
 }
 
 function toast (title, text = '', ic = 'info', { actions = [], image = null, duration = 3600 } = {}) {
   const el = document.createElement('div')
   el.className = 'toast'
-  el.innerHTML = `${image ? `<img class="shot" src="${esc(image)}">` : `<div class="t-ico">${icon(ic)}</div>`}<div class="t-body"><div class="t-title">${esc(title)}</div>${text ? `<div class="t-text">${esc(text)}</div>` : ''}</div>`
+  el.innerHTML = `${image ? `<img class="shot" src="${esc(image)}">` : `<div class="t-ico">${icon(ic)}</div>`}<div class="t-body"><div class="t-title">${esc(T(title))}</div>${text ? `<div class="t-text">${esc(T(text))}</div>` : ''}</div>`
   for (const a of actions) {
     const b = document.createElement('button')
     b.className = 'btn ghost sm'
-    b.textContent = a.label
+    b.textContent = T(a.label)
     b.onclick = () => { a.run(); dismiss() }
     el.append(b)
   }
   const dismiss = () => { el.classList.add('out'); setTimeout(() => el.remove(), 250) }
   $('#toasts').append(el)
-  setTimeout(dismiss, duration)
+  // Beim Überfahren stehen bleiben (bisher wurde der Timer nie angehalten)
+  el._t = setTimeout(dismiss, duration)
   el.addEventListener('mouseenter', () => clearTimeout(el._t))
+  el.addEventListener('mouseleave', () => { el._t = setTimeout(dismiss, 1500) })
 }
 
 function appMenu () {
@@ -1659,7 +1675,7 @@ function appMenu () {
   const zoomRow = document.createElement('div')
   zoomRow.className = 'm-row'
   const pct = Math.round(Math.pow(1.2, t?.zoom || 0) * 100)
-  zoomRow.innerHTML = `${icon('zoomIn')}<span class="m-label" style="margin-left:10px">Zoom</span><button class="icon-btn sm" data-z="-1">${icon('minus')}</button><span class="zoom-val">${pct} %</span><button class="icon-btn sm" data-z="1">${icon('plus')}</button><button class="icon-btn sm" data-z="full" title="Vollbild (F11)">${icon('expand')}</button>`
+  zoomRow.innerHTML = `${icon('zoomIn')}<span class="m-label" style="margin-left:10px">${T('Zoom')}</span><button class="icon-btn sm" data-z="-1">${icon('minus')}</button><span class="zoom-val">${pct} %</span><button class="icon-btn sm" data-z="1">${icon('plus')}</button><button class="icon-btn sm" data-z="full" title="${T('Vollbild (F11)')}">${icon('expand')}</button>`
   zoomRow.addEventListener('click', e => {
     const b = e.target.closest('[data-z]'); if (!b) return
     if (b.dataset.z === 'full') { hideMenu(); return toggleFullscreen() }
@@ -1702,7 +1718,7 @@ function togglePanel (name) {
   if (S.panel === name) return closePanel()
   S.panel = name
   $('#panel').hidden = false
-  $('#panel-title').textContent = PANEL_TITLES[name]
+  $('#panel-title').textContent = T(PANEL_TITLES[name])
   renderPanel()
   renderSbTools()
 }
@@ -1733,7 +1749,7 @@ function rowEl ({ url, favicon, title, sub, time, actions = [], onClick, iconNam
     for (const a of actions) {
       const b = document.createElement('button')
       b.className = 'icon-btn sm'
-      b.title = a.title
+      b.title = T(a.title)
       b.innerHTML = icon(a.icon)
       b.onclick = e => { e.stopPropagation(); a.run() }
       act.append(b)
@@ -1750,26 +1766,26 @@ function renderHistory (body) {
   body.innerHTML = ''
   const search = document.createElement('input')
   search.className = 'panel-search'
-  search.placeholder = 'Verlauf durchsuchen …'
+  search.placeholder = T('Verlauf durchsuchen …')
   search.value = q
   search.oninput = () => { renderHistory(body); const s = body.querySelector('.panel-search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length) }
   body.append(search)
   const ql = q.toLowerCase()
   const list = S.data.history.filter(h => !ql || (h.title + ' ' + h.url).toLowerCase().includes(ql)).slice(0, 300)
-  if (!list.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('history')}<div>${q ? 'Keine Treffer' : 'Noch kein Verlauf'}</div></div>`); return }
+  if (!list.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('history')}<div>${q ? T('Keine Treffer') : T('Noch kein Verlauf')}</div></div>`); return }
   const today = new Date().toDateString()
   const yesterday = new Date(Date.now() - 86400000).toDateString()
   let last = ''
   for (const h of list) {
     const d = new Date(h.time)
     const ds = d.toDateString()
-    const label = ds === today ? 'Heute' : ds === yesterday ? 'Gestern' : d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })
+    const label = ds === today ? T('Heute') : ds === yesterday ? T('Gestern') : d.toLocaleDateString(I18N.locale, { weekday: 'long', day: 'numeric', month: 'long' })
     if (label !== last) { body.insertAdjacentHTML('beforeend', `<div class="group-title">${esc(label)}</div>`); last = label }
     body.append(rowEl({
       url: h.url,
       title: h.title || h.url,
       sub: hostOf(h.url),
-      time: d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+      time: d.toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }),
       onClick: () => createTab({ url: h.url }),
       actions: [
         { icon: 'eye', title: 'Peek', run: () => openPeek(h.url) },
@@ -1780,7 +1796,7 @@ function renderHistory (body) {
   const clear = document.createElement('button')
   clear.className = 'btn ghost block'
   clear.style.marginTop = '14px'
-  clear.innerHTML = `${icon('trash')} Gesamten Verlauf löschen`
+  clear.innerHTML = `${icon('trash')} ${T('Gesamten Verlauf löschen')}`
   clear.onclick = () => confirmDialog('Verlauf löschen?', 'Der gesamte Browserverlauf wird unwiderruflich entfernt.', 'Löschen', () => { S.data.history = []; save('history'); renderPanel() })
   body.append(clear)
 }
@@ -1788,18 +1804,18 @@ function renderHistory (body) {
 function renderDownloads (body) {
   body.innerHTML = ''
   const list = [...S.downloads.values()].sort((a, b) => b.started - a.started)
-  if (!list.length) { body.innerHTML = `<div class="empty">${icon('download')}<div>Keine Downloads in dieser Sitzung</div></div>`; return }
+  if (!list.length) { body.innerHTML = `<div class="empty">${icon('download')}<div>${T('Keine Downloads in dieser Sitzung')}</div></div>`; return }
   for (const d of list) {
     const card = document.createElement('div')
     card.className = 'card'
     const pct = d.total ? Math.round(d.received / d.total * 100) : 0
-    const state = d.state === 'completed' ? `Fertig · ${fmtBytes(d.total || d.received)}`
-      : d.state === 'cancelled' ? 'Abgebrochen'
-        : d.state === 'interrupted' ? 'Unterbrochen'
-          : d.paused ? `Pausiert · ${pct} %` : `${fmtBytes(d.received)} von ${d.total ? fmtBytes(d.total) : '?'}`
+    const state = d.state === 'completed' ? T('Fertig · {size}', { size: fmtBytes(d.total || d.received) })
+      : d.state === 'cancelled' ? T('Abgebrochen')
+        : d.state === 'interrupted' ? T('Unterbrochen')
+          : d.paused ? T('Pausiert · {pct} %', { pct }) : T('{done} von {total}', { done: fmtBytes(d.received), total: d.total ? fmtBytes(d.total) : '?' })
     card.innerHTML = `<div class="flex"><span class="r-ico">${icon('file')}</span><div class="grow" style="min-width:0"><div class="r-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.name)}</div><div class="muted" style="font-size:12px">${esc(state)}</div></div></div>${d.state === 'progressing' ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}<div class="ext-actions"></div>`
     const act = $('.ext-actions', card)
-    const btn = (label, fn, ghost = true) => { const b = document.createElement('button'); b.className = 'btn sm' + (ghost ? ' ghost' : ''); b.textContent = label; b.onclick = fn; act.append(b) }
+    const btn = (label, fn, ghost = true) => { const b = document.createElement('button'); b.className = 'btn sm' + (ghost ? ' ghost' : ''); b.textContent = T(label); b.onclick = fn; act.append(b) }
     if (d.state === 'completed') { btn('Öffnen', () => A.send('dl:open', d.path), false); btn('Im Ordner zeigen', () => A.send('dl:show', d.path)) }
     if (d.state === 'progressing') { btn(d.paused ? 'Fortsetzen' : 'Pausieren', () => A.send('dl:control', d.id, d.paused ? 'resume' : 'pause')); btn('Abbrechen', () => A.send('dl:control', d.id, 'cancel')) }
     body.append(card)
@@ -1818,7 +1834,7 @@ function renderNotes (body) {
   body.innerHTML = ''
   const t = activeTab()
   const host = t && /^https?:/.test(t.url) ? hostOf(t.url) : ''
-  body.insertAdjacentHTML('beforeend', '<p class="panel-note">Notizen werden pro Website gespeichert und erscheinen automatisch wieder, wenn du die Seite erneut besuchst. Markierter Text lässt sich per Rechtsklick direkt übernehmen.</p>')
+  body.insertAdjacentHTML('beforeend', `<p class="panel-note">${T('Notizen werden pro Website gespeichert und erscheinen automatisch wieder, wenn du die Seite erneut besuchst. Markierter Text lässt sich per Rechtsklick direkt übernehmen.')}</p>`)
   if (host) {
     const head = document.createElement('div')
     head.className = 'note-host'
@@ -1827,7 +1843,7 @@ function renderNotes (body) {
     body.append(head)
     const ta = document.createElement('textarea')
     ta.className = 'note-area'
-    ta.placeholder = `Gedanken, To-dos oder Zitate zu ${host} …`
+    ta.placeholder = T('Gedanken, To-dos oder Zitate zu {host} …', { host })
     ta.value = S.data.notes[host]?.text || ''
     ta.oninput = () => {
       if (ta.value.trim()) S.data.notes[host] = { text: ta.value, updated: Date.now(), url: t.url }
@@ -1836,11 +1852,11 @@ function renderNotes (body) {
     }
     body.append(ta)
   } else {
-    body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('note')}<div>Öffne eine Website, um Notizen dazu anzulegen.</div></div>`)
+    body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('note')}<div>${T('Öffne eine Website, um Notizen dazu anzulegen.')}</div></div>`)
   }
   const others = Object.entries(S.data.notes).filter(([h]) => h !== host).sort((a, b) => b[1].updated - a[1].updated)
   if (others.length) {
-    body.insertAdjacentHTML('beforeend', '<div class="group-title">Alle Notizen</div>')
+    body.insertAdjacentHTML('beforeend', `<div class="group-title">${T('Alle Notizen')}</div>`)
     for (const [h, n] of others) {
       body.append(rowEl({
         url: n.url || 'https://' + h,
@@ -1875,33 +1891,33 @@ function saveSnapshot (sp = curSpace()) {
     tabs: tabs.map(t => ({ url: t.url, title: t.title, favicon: t.favicon }))
   })
   save('snapshots')
-  toast('Zeitkapsel gespeichert', `${tabs.length} Tabs aus „${sp.name}“ gesichert.`, 'archive')
+  toast('Zeitkapsel gespeichert', T('{n} Tabs aus „{name}“ gesichert.', { n: tabs.length, name: sp.name }), 'archive')
   if (S.panel === 'snapshots') renderPanel()
 }
 
 function restoreSnapshot (snap) {
-  const sp = addSpace({ name: `${snap.name} · ${new Date(snap.created).toLocaleDateString('de-DE')}`, color: snap.color, icon: snap.icon })
+  const sp = addSpace({ name: `${snap.name} · ${new Date(snap.created).toLocaleDateString(I18N.locale)}`, color: snap.color, icon: snap.icon })
   const first = sp.tabIds[0]
   snap.tabs.forEach(t => createTab({ url: t.url, title: t.title, favicon: t.favicon, spaceId: sp.id, sleeping: true, background: true }))
   if (first) closeTab(first)
   activate(sp.tabIds[0])
-  toast('Zeitkapsel geöffnet', `${snap.tabs.length} Tabs wiederhergestellt – schlafend, bis du sie brauchst.`, 'archive')
+  toast('Zeitkapsel geöffnet', T('{n} Tabs wiederhergestellt – schlafend, bis du sie brauchst.', { n: snap.tabs.length }), 'archive')
 }
 
 function renderSnapshots (body) {
   body.innerHTML = ''
-  body.insertAdjacentHTML('beforeend', '<p class="panel-note">Zeitkapseln frieren einen ganzen Space ein – alle Tabs, sortiert und benannt. Später öffnest du ihn als neuen Space und machst genau dort weiter.</p>')
+  body.insertAdjacentHTML('beforeend', `<p class="panel-note">${T('Zeitkapseln frieren einen ganzen Space ein – alle Tabs, sortiert und benannt. Später öffnest du ihn als neuen Space und machst genau dort weiter.')}</p>`)
   const btn = document.createElement('button')
   btn.className = 'btn block'
-  btn.innerHTML = `${icon('archive')} „${esc(curSpace().name)}“ jetzt sichern`
+  btn.innerHTML = `${icon('archive')} ${esc(T('„{name}“ jetzt sichern', { name: curSpace().name }))}`
   btn.onclick = () => saveSnapshot()
   body.append(btn)
-  if (!S.data.snapshots.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('archive')}<div>Noch keine Zeitkapseln</div></div>`); return }
-  body.insertAdjacentHTML('beforeend', '<div class="group-title">Gespeichert</div>')
+  if (!S.data.snapshots.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('archive')}<div>${T('Noch keine Zeitkapseln')}</div></div>`); return }
+  body.insertAdjacentHTML('beforeend', `<div class="group-title">${T('Gespeichert')}</div>`)
   for (const snap of S.data.snapshots) {
     const card = document.createElement('div')
     card.className = 'card'
-    card.innerHTML = `<div class="flex"><span class="space-btn active" style="--sc:${esc(snap.color)};cursor:default">${esc(snap.icon)}</span><div class="grow"><h3>${esc(snap.name)}</h3><div class="muted" style="font-size:12px">${snap.tabs.length} Tabs · ${new Date(snap.created).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}</div></div></div><div class="muted" style="font-size:12px;margin-top:8px;line-height:1.5">${snap.tabs.slice(0, 4).map(t => esc(t.title || hostOf(t.url))).join(' · ')}${snap.tabs.length > 4 ? ' …' : ''}</div><div class="ext-actions"><button class="btn sm" data-a="open">Öffnen</button><button class="btn ghost sm" data-a="del">Löschen</button></div>`
+    card.innerHTML = `<div class="flex"><span class="space-btn active" style="--sc:${esc(snap.color)};cursor:default">${esc(snap.icon)}</span><div class="grow"><h3>${esc(snap.name)}</h3><div class="muted" style="font-size:12px">${T('{n} Tabs', { n: snap.tabs.length })} · ${new Date(snap.created).toLocaleString(I18N.locale, { dateStyle: 'medium', timeStyle: 'short' })}</div></div></div><div class="muted" style="font-size:12px;margin-top:8px;line-height:1.5">${snap.tabs.slice(0, 4).map(t => esc(t.title || hostOf(t.url))).join(' · ')}${snap.tabs.length > 4 ? ' …' : ''}</div><div class="ext-actions"><button class="btn sm" data-a="open">${T('Öffnen')}</button><button class="btn ghost sm" data-a="del">${T('Löschen')}</button></div>`
     card.querySelector('[data-a=open]').onclick = () => restoreSnapshot(snap)
     card.querySelector('[data-a=del]').onclick = () => { S.data.snapshots = S.data.snapshots.filter(s => s !== snap); save('snapshots'); renderPanel() }
     body.append(card)
@@ -1911,11 +1927,11 @@ function renderSnapshots (body) {
 async function renderExtensions (body) {
   const list = await A.invoke('ext:list')
   body.innerHTML = ''
-  body.insertAdjacentHTML('beforeend', '<p class="panel-note">Caravel unterstützt Chrome-Erweiterungen direkt aus dem Chrome Web Store. Öffne den Store und klicke bei einer Erweiterung auf „Hinzufügen“. Aktionssymbole erscheinen rechts in der Werkzeugleiste.</p>')
+  body.insertAdjacentHTML('beforeend', `<p class="panel-note">${T('Caravel unterstützt Chrome-Erweiterungen direkt aus dem Chrome Web Store. Öffne den Store und klicke bei einer Erweiterung auf „Hinzufügen“. Aktionssymbole erscheinen rechts in der Werkzeugleiste.')}</p>`)
   const actions = document.createElement('div')
   actions.className = 'flex'
   actions.style.marginBottom = '12px'
-  actions.innerHTML = `<button class="btn" id="ext-store">${icon('external')} Chrome Web Store</button><button class="btn ghost" id="ext-unpacked">${icon('folder')} Entpackt laden</button>`
+  actions.innerHTML = `<button class="btn" id="ext-store">${icon('external')} Chrome Web Store</button><button class="btn ghost" id="ext-unpacked">${icon('folder')} ${T('Entpackt laden')}</button>`
   body.append(actions)
   $('#ext-store', body).onclick = () => createTab({ url: 'https://chromewebstore.google.com/' })
   $('#ext-unpacked', body).onclick = async () => {
@@ -1925,26 +1941,26 @@ async function renderExtensions (body) {
     } catch (err) { toast('Laden fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning') }
   }
   if (!list.length) {
-    body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('puzzle')}<div>Noch keine Erweiterungen installiert.<br><span style="font-size:12px">Beliebt: uBlock Origin Lite, Dark Reader, Bitwarden, Grammarly</span></div></div>`)
+    body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('puzzle')}<div>${T('Noch keine Erweiterungen installiert.')}<br><span style="font-size:12px">${T('Beliebt:')} uBlock Origin Lite, Dark Reader, Bitwarden, Grammarly</span></div></div>`)
     return
   }
-  body.insertAdjacentHTML('beforeend', `<div class="group-title">Installiert (${list.length})</div>`)
+  body.insertAdjacentHTML('beforeend', `<div class="group-title">${T('Installiert ({n})', { n: list.length })}</div>`)
   for (const ext of list) {
     const card = document.createElement('div')
     card.className = 'card'
-    card.innerHTML = `<div class="ext-row">${ext.icon ? `<img src="${ext.icon}">` : `<div class="ext-ph">${icon('puzzle')}</div>`}<div class="grow" style="min-width:0"><h3>${esc(ext.name)}</h3><div class="muted" style="font-size:12px">Version ${esc(ext.version)}${ext.unpacked ? ' · entpackt' : ' · Chrome Web Store'}</div>${ext.description ? `<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.45">${esc(ext.description)}</div>` : ''}</div></div><div class="ext-actions"></div>`
+    card.innerHTML = `<div class="ext-row">${ext.icon ? `<img src="${ext.icon}">` : `<div class="ext-ph">${icon('puzzle')}</div>`}<div class="grow" style="min-width:0"><h3>${esc(ext.name)}</h3><div class="muted" style="font-size:12px">${T('Version')} ${esc(ext.version)}${ext.unpacked ? ' · ' + T('entpackt') : ' · Chrome Web Store'}</div>${ext.description ? `<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.45">${esc(ext.description)}</div>` : ''}</div></div><div class="ext-actions"></div>`
     const act = $('.ext-actions', card)
     if (ext.options) {
       const o = document.createElement('button')
       o.className = 'btn ghost sm'
-      o.textContent = 'Optionen'
+      o.textContent = T('Optionen')
       o.onclick = () => createTab({ url: `chrome-extension://${ext.id}/${ext.options}` })
       act.append(o)
     }
     const r = document.createElement('button')
     r.className = 'btn ghost sm'
-    r.textContent = 'Entfernen'
-    r.onclick = () => confirmDialog(`„${ext.name}“ entfernen?`, 'Die Erweiterung und ihre Daten werden aus Caravel entfernt.', 'Entfernen', async () => {
+    r.textContent = T('Entfernen')
+    r.onclick = () => confirmDialog(T('„{name}“ entfernen?', { name: ext.name }), 'Die Erweiterung und ihre Daten werden aus Caravel entfernt.', 'Entfernen', async () => {
       await A.invoke('ext:remove', ext.id)
       toast('Erweiterung entfernt', ext.name, 'puzzle')
       renderPanel()
@@ -1970,9 +1986,9 @@ function commands () {
     { title: S.focus.active ? 'Fokus-Modus beenden' : 'Fokus-Modus starten', icon: 'focus', hint: 'Strg+Umschalt+F', run: () => S.focus.active ? endFocus(false) : startFocus(settings().focusMinutes) },
     { title: 'Streamen (Chromecast)', icon: 'cast', run: () => openCast() },
     ...(dockEnabled() ? [
-      { title: `${assistant().name}-Seitenleiste`, icon: 'chat', hint: 'Strg+E', run: () => toggleDock() },
-      { title: `Seite an ${assistant().name} übergeben`, icon: 'send', hint: 'Strg+Umschalt+L', run: () => sendPageToClaude('context') },
-      { title: `Seite mit ${assistant().name} zusammenfassen`, icon: 'chat', run: () => sendPageToClaude('summarize') }
+      { title: T('{ai}-Seitenleiste', { ai: assistant().name }), icon: 'chat', hint: 'Strg+E', run: () => toggleDock() },
+      { title: T('Seite an {ai} übergeben', { ai: assistant().name }), icon: 'send', hint: 'Strg+Umschalt+L', run: () => sendPageToClaude('context') },
+      { title: T('Seite mit {ai} zusammenfassen', { ai: assistant().name }), icon: 'chat', run: () => sendPageToClaude('summarize') }
     ] : []),
     ...(settings().assistant === 'claude' ? [{ title: 'Claude in Chrome öffnen', icon: 'agent', run: openClaudeExtension }] : []),
     { title: 'KI-Assistent wählen', icon: 'chat', run: () => openSettings('claude') },
@@ -1983,7 +1999,7 @@ function commands () {
     { title: 'Lesezeichen setzen/entfernen', icon: 'star', hint: 'Strg+D', run: toggleBookmark },
     { title: 'Seite drucken', icon: 'print', hint: 'Strg+P', run: () => t?.ready && t.webview.print() },
     { title: 'Neuer Space', icon: 'layers', run: () => editSpaceDialog(null) },
-    ...S.spaces.map((sp, i) => ({ title: `Space: ${sp.name}`, icon: 'layers', hint: `Alt+${i + 1}`, run: () => switchSpace(sp.id) })),
+    ...S.spaces.map((sp, i) => ({ title: `Space: ${sp.name}`, user: true, icon: 'layers', hint: `Alt+${i + 1}`, run: () => switchSpace(sp.id) })),
     { title: 'Zeitkapsel dieses Spaces speichern', icon: 'archive', run: () => saveSnapshot() },
     { title: 'Verlauf anzeigen', icon: 'history', hint: 'Strg+H', run: () => togglePanel('history') },
     { title: 'Downloads anzeigen', icon: 'download', hint: 'Strg+J', run: () => togglePanel('downloads') },
@@ -1998,7 +2014,8 @@ function commands () {
     { title: 'Tastenkürzel anzeigen', icon: 'keyboard', run: showShortcuts },
     { title: 'Browserdaten löschen', icon: 'trash', run: () => openSettings('privacy') }
   ]
-  return list.map(c => ({ ...c, kind: 'Befehle' }))
+  // Befehle in der aktuellen Sprache (Nutzerinhalte wie Space-Namen bleiben unverändert)
+  return list.map(c => ({ ...c, title: c.user ? c.title : T(c.title), hint: c.hint && T(c.hint), kind: T('Befehle') }))
 }
 
 function fuzzy (q, text) {
@@ -2024,29 +2041,29 @@ function openPalette () {
   const build = () => {
     const q = input.value.trim().toLowerCase()
     const tabs = [...S.tabs.values()].map(t => ({
-      title: t.title || 'Neuer Tab', sub: (space(t.spaceId)?.name || '') + ' · ' + (prettyUrl(t.url) || 'Neuer Tab'), url: t.url, favicon: t.favicon, kind: 'Offene Tabs', run: () => activate(t.id)
+      title: t.title || T('Neuer Tab'), sub: (space(t.spaceId)?.name || '') + ' · ' + (prettyUrl(t.url) || T('Neuer Tab')), url: t.url, favicon: t.favicon, kind: T('Offene Tabs'), run: () => activate(t.id)
     }))
     if (!q) {
       items = [...tabs.filter(t => space(S.activeSpace)).slice(0, 6), ...commands().slice(0, 10)]
     } else {
       const score = arr => arr.map(x => ({ x, s: fuzzy(q, x.title + ' ' + (x.sub || '')) })).filter(o => o.s >= 0).sort((a, b) => b.s - a.s).map(o => o.x)
-      const bms = bmFlat().map(b => ({ title: b.title, sub: hostOf(b.url), url: b.url, favicon: b.favicon, kind: 'Lesezeichen', run: () => createTab({ url: b.url }) }))
+      const bms = bmFlat().map(b => ({ title: b.title, sub: hostOf(b.url), url: b.url, favicon: b.favicon, kind: T('Lesezeichen'), run: () => createTab({ url: b.url }) }))
       const hist = []
       const seen = new Set()
       for (const h of S.data.history) {
         if (hist.length >= 6) break
         if (seen.has(h.url)) continue
-        if ((h.title + ' ' + h.url).toLowerCase().includes(q)) { seen.add(h.url); hist.push({ title: h.title || h.url, sub: hostOf(h.url), url: h.url, kind: 'Verlauf', run: () => createTab({ url: h.url }) }) }
+        if ((h.title + ' ' + h.url).toLowerCase().includes(q)) { seen.add(h.url); hist.push({ title: h.title || h.url, sub: hostOf(h.url), url: h.url, kind: T('Verlauf'), run: () => createTab({ url: h.url }) }) }
       }
       items = [...score(commands()).slice(0, 6), ...score(tabs).slice(0, 5), ...score(bms).slice(0, 4), ...hist,
-        { title: `Im Web suchen: „${input.value.trim()}“`, icon: 'search', kind: 'Web', run: () => createTab({ url: searchUrl(input.value.trim()) }) }]
+        { title: T('Im Web suchen: „{q}“', { q: input.value.trim() }), icon: 'search', kind: 'Web', run: () => createTab({ url: searchUrl(input.value.trim()) }) }]
     }
     sel = 0
     render()
   }
   const render = () => {
     list.innerHTML = ''
-    if (!items.length) { list.innerHTML = '<div class="p-empty">Keine Treffer</div>'; return }
+    if (!items.length) { list.innerHTML = `<div class="p-empty">${T('Keine Treffer')}</div>`; return }
     let lastKind = ''
     items.forEach((it, i) => {
       if (it.kind !== lastKind) { list.insertAdjacentHTML('beforeend', `<div class="p-sec">${esc(it.kind)}</div>`); lastKind = it.kind }
@@ -2168,20 +2185,20 @@ function renderReader () {
     blockquote{border-left:3px solid ${accent};margin:1.4em 0;padding:.1em 1.2em;opacity:.85;font-style:italic}
     table{border-collapse:collapse;width:100%;font-size:.9em} td,th{border:1px solid rgba(127,127,127,.3);padding:6px 10px}
     ::selection{background:${accent}44}
-  </style></head><body><main><div class="site">${esc(r.art.siteName || hostOf(activeTab()?.url))}</div><h1>${esc(r.art.title)}</h1><div class="meta">${r.art.byline ? esc(r.art.byline) + ' · ' : ''}${minutes} Min. Lesezeit</div>${r.art.content}</main></body></html>`
+  </style></head><body><main><div class="site">${esc(r.art.siteName || hostOf(activeTab()?.url))}</div><h1>${esc(r.art.title)}</h1><div class="meta">${r.art.byline ? esc(r.art.byline) + ' · ' : ''}${T('{n} Min. Lesezeit', { n: minutes })}</div>${r.art.content}</main></body></html>`
 
   box.innerHTML = `<div class="reader-bar">
-      <button class="icon-btn sm" data-r="close" title="Leser-Modus verlassen (Esc)">${icon('x')}</button>
+      <button class="icon-btn sm" data-r="close" title="${T('Leser-Modus verlassen (Esc)')}">${icon('x')}</button>
       <span class="rb-title">${esc(r.art.title)}</span>
-      <button class="icon-btn sm ${r.speaking ? 'on' : ''}" data-r="speak" title="Vorlesen">${icon(r.speaking ? 'pause' : 'speak')}</button>
+      <button class="icon-btn sm ${r.speaking ? 'on' : ''}" data-r="speak" title="${T('Vorlesen')}">${icon(r.speaking ? 'pause' : 'speak')}</button>
       <span class="rb-sep"></span>
-      <button class="icon-btn sm" data-r="smaller" title="Kleiner">${icon('minus')}</button>
-      <button class="icon-btn sm" data-r="font" title="Schriftart wechseln">${icon('type')}</button>
-      <button class="icon-btn sm" data-r="bigger" title="Größer">${icon('plus')}</button>
+      <button class="icon-btn sm" data-r="smaller" title="${T('Kleiner')}">${icon('minus')}</button>
+      <button class="icon-btn sm" data-r="font" title="${T('Schriftart wechseln')}">${icon('type')}</button>
+      <button class="icon-btn sm" data-r="bigger" title="${T('Größer')}">${icon('plus')}</button>
       <span class="rb-sep"></span>
-      <span class="dotc" data-r="light" style="background:#fbfaf7" title="Hell"></span>
-      <span class="dotc" data-r="sepia" style="background:#f4ecd8" title="Sepia"></span>
-      <span class="dotc" data-r="dark" style="background:#15151c" title="Dunkel"></span>
+      <span class="dotc" data-r="light" style="background:#fbfaf7" title="${T('Hell')}"></span>
+      <span class="dotc" data-r="sepia" style="background:#f4ecd8" title="${T('Sepia')}"></span>
+      <span class="dotc" data-r="dark" style="background:#15151c" title="${T('Dunkel')}"></span>
     </div>`
   const frame = document.createElement('iframe')
   frame.setAttribute('sandbox', 'allow-popups')
@@ -2213,7 +2230,7 @@ function toggleSpeak () {
   }
   const text = (r.art.title + '. ' + r.art.text).replace(/\s+/g, ' ')
   const chunks = text.match(/[^.!?]{1,240}[.!?]*|.{1,240}/g) || []
-  const lang = (r.art.lang || 'de').slice(0, 2)
+  const lang = (r.art.lang || I18N.lang).slice(0, 2)
   const voice = speechSynthesis.getVoices().find(v => v.lang.startsWith(lang))
   speechSynthesis.cancel()
   chunks.forEach((c, i) => {
@@ -2253,19 +2270,19 @@ async function openAdblockPopover () {
   const global = st.adblock !== false
   const paused = adblockPaused(t?.url || '')
   const info = await A.invoke('adblock:info').catch(() => ({}))
-  const updated = info.updated ? new Date(info.updated).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '–'
+  const updated = info.updated ? new Date(info.updated).toLocaleString(I18N.locale, { dateStyle: 'medium', timeStyle: 'short' }) : '–'
   const p = showPopover($('#btn-adblock'), `
-    <h3>${icon('shieldCheck')} Werbeblocker</h3>
-    <div class="sub">Mit den Filterlisten von uBlock Origin – blockiert Werbung (auch auf YouTube), Tracker und Schadseiten.</div>
+    <h3>${icon('shieldCheck')} ${T('Werbeblocker')}</h3>
+    <div class="sub">${T('Mit den Filterlisten von uBlock Origin – blockiert Werbung (auch auf YouTube), Tracker und Schadseiten.')}</div>
     <div class="flex" style="gap:10px">
-      <div class="card grow" style="margin:0;text-align:center"><div style="font:700 26px var(--font-display)">${global && !paused ? t?.blocked || 0 : '–'}</div><div class="muted" style="font-size:12px">auf dieser Seite</div></div>
-      <div class="card grow" style="margin:0;text-align:center"><div style="font:700 26px var(--font-display)">${(S.adblockTotal || 0).toLocaleString('de-DE')}</div><div class="muted" style="font-size:12px">insgesamt</div></div>
+      <div class="card grow" style="margin:0;text-align:center"><div style="font:700 26px var(--font-display)">${global && !paused ? t?.blocked || 0 : '–'}</div><div class="muted" style="font-size:12px">${T('auf dieser Seite')}</div></div>
+      <div class="card grow" style="margin:0;text-align:center"><div style="font:700 26px var(--font-display)">${(S.adblockTotal || 0).toLocaleString(I18N.locale)}</div><div class="muted" style="font-size:12px">${T('insgesamt')}</div></div>
     </div>
     <div class="pop-sep"></div>
-    ${host ? `<div class="set-row" style="padding:0 0 10px;border:0"><div><div class="t">Auf ${esc(host)} aktiv</div><div class="d">Ausschalten, falls eine Seite nicht richtig funktioniert.</div></div><label class="switch"><input type="checkbox" id="ab-site" ${!paused ? 'checked' : ''} ${global ? '' : 'disabled'}><span></span></label></div>` : ''}
-    <div class="set-row" style="padding:0 0 10px;border:0"><div><div class="t">Cookie-Banner ausblenden</div></div><label class="switch"><input type="checkbox" id="ab-cookies" ${st.adblockCookies ? 'checked' : ''}><span></span></label></div>
-    <div class="set-row" style="padding:0;border:0"><div><div class="t">Werbeblocker</div><div class="d">Listen aktualisiert: ${esc(updated)}</div></div><label class="switch"><input type="checkbox" id="ab-global" ${global ? 'checked' : ''}><span></span></label></div>
-    <div class="flex" style="margin-top:12px"><button class="btn ghost sm" id="ab-update">${icon('refresh')} Filterlisten aktualisieren</button></div>`, 'adblock')
+    ${host ? `<div class="set-row" style="padding:0 0 10px;border:0"><div><div class="t">${esc(T('Auf {host} aktiv', { host }))}</div><div class="d">${T('Ausschalten, falls eine Seite nicht richtig funktioniert.')}</div></div><label class="switch"><input type="checkbox" id="ab-site" ${!paused ? 'checked' : ''} ${global ? '' : 'disabled'}><span></span></label></div>` : ''}
+    <div class="set-row" style="padding:0 0 10px;border:0"><div><div class="t">${T('Cookie-Banner ausblenden')}</div></div><label class="switch"><input type="checkbox" id="ab-cookies" ${st.adblockCookies ? 'checked' : ''}><span></span></label></div>
+    <div class="set-row" style="padding:0;border:0"><div><div class="t">${T('Werbeblocker')}</div><div class="d">${T('Listen aktualisiert: {date}', { date: esc(updated) })}</div></div><label class="switch"><input type="checkbox" id="ab-global" ${global ? 'checked' : ''}><span></span></label></div>
+    <div class="flex" style="margin-top:12px"><button class="btn ghost sm" id="ab-update">${icon('refresh')} ${T('Filterlisten aktualisieren')}</button></div>`, 'adblock')
   const reloadActive = () => { const a = activeTab(); if (a?.ready) a.webview.reload() }
   const siteToggle = $('#ab-site', p)
   if (siteToggle) {
@@ -2290,7 +2307,7 @@ async function openAdblockPopover () {
    VPN (Tor mit Länderwahl oder eigene Server)
    --------------------------------------------------------------------- */
 
-const VPN_TYPES = { socks5: 'SOCKS5', http: 'HTTP-Proxy', https: 'HTTPS-Proxy', wireguard: 'WireGuard' }
+const VPN_TYPES = { socks5: 'SOCKS5', http: 'HTTP-Proxy', https: 'HTTPS-Proxy', wireguard: 'WireGuard' } // Fachbegriffe, keine Übersetzung nötig
 
 function updateVpnPill () {
   const v = S.vpn || { status: 'off' }
@@ -2298,7 +2315,7 @@ function updateVpnPill () {
   b.className = 'vpn-pill ' + ({ on: 'on', connecting: 'connecting', error: 'error' }[v.status] || '')
   const label = v.status === 'on' ? (v.country || 'VPN') : v.status === 'connecting' ? `${v.progress || 0} %` : 'VPN'
   b.innerHTML = `<span class="dotv"></span>${esc(label)}`
-  b.title = v.status === 'on' ? `VPN aktiv: ${v.label}${v.ip ? ' · ' + v.ip : ''}` : v.status === 'connecting' ? 'VPN verbindet …' : v.status === 'error' ? `VPN-Fehler: ${v.error}` : 'VPN (aus)'
+  b.title = v.status === 'on' ? T('VPN aktiv: {label}', { label: v.label }) + (v.ip ? ' · ' + v.ip : '') : v.status === 'connecting' ? T('VPN verbindet …') : v.status === 'error' ? T('VPN-Fehler: {error}', { error: v.error }) : T('VPN (aus)')
 }
 
 async function openVpnPopover () {
@@ -2318,7 +2335,7 @@ function renderVpnPopover () {
   const busy = v.status === 'connecting'
   const heroSub = on
     ? `${esc(v.label)}${v.ip ? ` · ${esc(v.ip)}` : ''}${v.city ? ` · ${esc(v.city)}` : ''}`
-    : busy ? `Verbinde mit ${esc(v.label || '…')}` : v.status === 'error' ? esc(v.error || 'Fehler') : 'Dein Verkehr läuft direkt über deine eigene IP.'
+    : busy ? esc(T('Verbinde mit {label}', { label: v.label || '…' })) : v.status === 'error' ? esc(v.error || T('Fehler')) : T('Dein Verkehr läuft direkt über deine eigene IP.')
   const countries = (S.vpnCountries || []).map(([code, name]) => `
     <div class="server ${st.vpnCountry === code ? 'sel' : ''}" data-country="${code}">
       <span class="s-flag"><span class="kbd" style="font:600 10px var(--mono);color:var(--text-2)">${code === 'auto' ? '★' : code.toUpperCase()}</span></span>
@@ -2328,36 +2345,35 @@ function renderVpnPopover () {
     <div class="server ${st.vpnServerId === s.id ? 'sel' : ''}" data-server="${esc(s.id)}">
       <span class="s-flag">${icon(s.type === 'wireguard' ? 'vpn' : 'globe')}</span>
       <div class="s-main"><div>${esc(s.name)}</div><div>${VPN_TYPES[s.type]}${s.host ? ' · ' + esc(s.host) : ''}</div></div>
-      <button class="icon-btn sm" data-del="${esc(s.id)}" title="Entfernen">${icon('trash')}</button>
+      <button class="icon-btn sm" data-del="${esc(s.id)}" title="${T('Entfernen')}">${icon('trash')}</button>
     </div>`).join('')
   const html = `
     <h3>${icon('vpn')} VPN</h3>
-    <div class="sub">Leitet den gesamten Tab-Verkehr (inkl. DNS) durch einen verschlüsselten Tunnel und verbirgt deine IP-Adresse.</div>
+    <div class="sub">${T('Leitet den gesamten Tab-Verkehr (inkl. DNS) durch einen verschlüsselten Tunnel und verbirgt deine IP-Adresse.')}</div>
     <div class="vpn-hero ${on ? 'on' : ''}">
       <div class="globe">${icon(on ? 'vpn' : 'globe')}</div>
       <div class="grow" style="min-width:0">
-        <div class="v-title">${on ? 'Geschützt' : busy ? 'Verbinde …' : v.status === 'error' ? 'Nicht verbunden' : 'Ungeschützt'}</div>
+        <div class="v-title">${T(on ? 'Geschützt' : busy ? 'Verbinde …' : v.status === 'error' ? 'Nicht verbunden' : 'Ungeschützt')}</div>
         <div class="v-sub">${heroSub}</div>
         ${busy ? `<div class="vpn-progress"><i style="width:${v.progress || 5}%"></i></div>` : ''}
       </div>
     </div>
     <div class="flex" style="margin-bottom:12px">
-      <button class="btn grow" id="vpn-toggle" style="justify-content:center" ${busy ? 'disabled' : ''}>${on || busy ? 'Trennen' : 'Verbinden'}</button>
-      ${on && v.mode === 'tor' ? `<button class="btn ghost" id="vpn-newnym" title="Neue Route und neue IP">${icon('refresh')}</button>` : ''}
+      <button class="btn grow" id="vpn-toggle" style="justify-content:center" ${busy ? 'disabled' : ''}>${on || busy ? T('Trennen') : T('Verbinden')}</button>
+      ${on && v.mode === 'tor' ? `<button class="btn ghost" id="vpn-newnym" title="${T('Neue Route und neue IP')}">${icon('refresh')}</button>` : ''}
     </div>
     <div class="seg" id="vpn-mode" style="width:100%;margin-bottom:8px">
-      <button data-mode="tor" class="${mode === 'tor' ? 'on' : ''}" style="flex:1">Tor · kostenlos</button>
-      <button data-mode="server" class="${mode === 'server' ? 'on' : ''}" style="flex:1">Eigene Server</button>
+      <button data-mode="tor" class="${mode === 'tor' ? 'on' : ''}" style="flex:1">${T('Tor · kostenlos')}</button>
+      <button data-mode="server" class="${mode === 'server' ? 'on' : ''}" style="flex:1">${T('Eigene Server')}</button>
     </div>
     ${mode === 'tor'
       ? `<div class="server-list">${countries}</div>
-         <div class="muted" style="font-size:11.5px;line-height:1.5">Tor ist kostenlos und braucht kein Konto, ist aber langsamer; manche Seiten zeigen Captchas. Für echte Anonymität eignet sich weiterhin der Tor Browser.</div>`
-      : `<div class="server-list">${servers || '<div class="muted" style="font-size:12px;padding:8px 2px">Noch keine Server. Füge WireGuard-Konfigurationen (z. B. kostenlos von Proton VPN) oder SOCKS5-/HTTP-Zugänge deines Anbieters hinzu.</div>'}</div>
-         <div class="flex"><button class="btn ghost sm" id="vpn-import">${icon('folder')} WireGuard importieren</button><button class="btn ghost sm" id="vpn-add">${icon('plus')} Server hinzufügen</button></div>`}`
+         <div class="muted" style="font-size:11.5px;line-height:1.5">${T('Tor ist kostenlos und braucht kein Konto, ist aber langsamer; manche Seiten zeigen Captchas. Für echte Anonymität eignet sich weiterhin der Tor Browser.')}</div>`
+      : `<div class="server-list">${servers || `<div class="muted" style="font-size:12px;padding:8px 2px">${T('Noch keine Server. Füge WireGuard-Konfigurationen (z. B. kostenlos von Proton VPN) oder SOCKS5-/HTTP-Zugänge deines Anbieters hinzu.')}</div>`}</div>
+         <div class="flex"><button class="btn ghost sm" id="vpn-import">${icon('folder')} ${T('WireGuard importieren')}</button><button class="btn ghost sm" id="vpn-add">${icon('plus')} ${T('Server hinzufügen')}</button></div>`}`
   const p = S.popover === 'vpn' ? $('#popover') : null
-  const pop = p || showPopover($('#btn-vpn'), html, 'vpn')
+  const pop = p || showPopover($('#btn-vpn'), html, 'vpn', 360)
   if (p) p.innerHTML = html
-  pop.style.width = '360px'
   pop.onclick = async e => {
     if (e.target.closest('#vpn-toggle')) {
       if (on || busy) await A.invoke('vpn:disconnect')
@@ -2393,7 +2409,7 @@ function renderVpnPopover () {
       if (list.length) {
         if (!st.vpnServerId) st.vpnServerId = st.vpnServers[0].id
         saveSettingsNow(); renderVpnPopover()
-        toast('WireGuard importiert', `${list.length} Server hinzugefügt.`, 'vpn')
+        toast('WireGuard importiert', T('{n} Server hinzugefügt.', { n: list.length }), 'vpn')
       }
       return
     }
@@ -2403,18 +2419,18 @@ function renderVpnPopover () {
 
 function addServerDialog () {
   showModal(`
-    <div class="modal-head"><h2>VPN-Server hinzufügen</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
+    <div class="modal-head"><h2>${T('VPN-Server hinzufügen')}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
     <div class="modal-body">
-      <p class="muted" style="margin-top:0;line-height:1.5">Die Zugangsdaten findest du im Kundenbereich deines VPN-Anbieters (oft unter „Manuelle Einrichtung“, „SOCKS5“ oder „WireGuard“). Sie werden nur lokal auf diesem PC gespeichert.</p>
-      <div class="field"><label>Name</label><input class="input" id="sv-name" placeholder="z. B. Mullvad Frankfurt"></div>
-      <div class="field"><label>Typ</label><select class="input" id="sv-type">${Object.entries(VPN_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+      <p class="muted" style="margin-top:0;line-height:1.5">${T('Die Zugangsdaten findest du im Kundenbereich deines VPN-Anbieters (oft unter „Manuelle Einrichtung“, „SOCKS5“ oder „WireGuard“). Sie werden nur lokal auf diesem PC gespeichert.')}</p>
+      <div class="field"><label>${T('Name')}</label><input class="input" id="sv-name" placeholder="${T('z. B. Mullvad Frankfurt')}"></div>
+      <div class="field"><label>${T('Typ')}</label><select class="input" id="sv-type">${Object.entries(VPN_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
       <div id="sv-proxy">
-        <div class="flex" style="align-items:flex-start"><div class="field grow"><label>Adresse</label><input class="input" id="sv-host" placeholder="de-fra.anbieter.net"></div><div class="field" style="width:110px"><label>Port</label><input class="input" id="sv-port" placeholder="1080"></div></div>
-        <div class="flex" style="align-items:flex-start"><div class="field grow"><label>Benutzer (optional)</label><input class="input" id="sv-user"></div><div class="field grow"><label>Passwort (optional)</label><input class="input" id="sv-pass" type="password"></div></div>
+        <div class="flex" style="align-items:flex-start"><div class="field grow"><label>${T('Adresse')}</label><input class="input" id="sv-host" placeholder="${T('de-fra.anbieter.net')}"></div><div class="field" style="width:110px"><label>Port</label><input class="input" id="sv-port" placeholder="1080"></div></div>
+        <div class="flex" style="align-items:flex-start"><div class="field grow"><label>${T('Benutzer (optional)')}</label><input class="input" id="sv-user"></div><div class="field grow"><label>${T('Passwort (optional)')}</label><input class="input" id="sv-pass" type="password"></div></div>
       </div>
-      <div id="sv-wg" hidden><div class="field"><label>WireGuard-Konfiguration</label><textarea class="input" id="sv-conf" rows="9" placeholder="[Interface]&#10;PrivateKey = …&#10;Address = …&#10;&#10;[Peer]&#10;PublicKey = …&#10;Endpoint = …"></textarea></div></div>
+      <div id="sv-wg" hidden><div class="field"><label>${T('WireGuard-Konfiguration')}</label><textarea class="input" id="sv-conf" rows="9" placeholder="[Interface]&#10;PrivateKey = …&#10;Address = …&#10;&#10;[Peer]&#10;PublicKey = …&#10;Endpoint = …"></textarea></div></div>
     </div>
-    <div class="modal-foot"><button class="btn ghost" data-close>Abbrechen</button><button class="btn" id="sv-save">Speichern</button></div>`)
+    <div class="modal-foot"><button class="btn ghost" data-close>${T('Abbrechen')}</button><button class="btn" id="sv-save">${T('Speichern')}</button></div>`)
   const type = $('#sv-type')
   type.onchange = () => { $('#sv-wg').hidden = type.value !== 'wireguard'; $('#sv-proxy').hidden = type.value === 'wireguard' }
   $('#sv-save').onclick = () => {
@@ -2456,9 +2472,9 @@ const dockEnabled = () => !!assistant() && !!settings().claudeSidebar
 function applyAssistant () {
   const a = assistant()
   document.documentElement.style.setProperty('--claude', a?.color || '#e0845f')
-  $('#btn-claude').innerHTML = `${icon('chat')}<span>${esc(a?.name || 'KI')}</span>`
-  $('#btn-claude').title = `${a?.name || 'KI'}-Seitenleiste (Strg+E)`
-  $('#dock-send').title = `Aktuelle Seite an ${a?.name || 'die KI'} übergeben`
+  $('#btn-claude').innerHTML = `${icon('chat')}<span>${esc(a?.name || T('KI'))}</span>`
+  $('#btn-claude').title = T('{ai}-Seitenleiste (Strg+E)', { ai: a?.name || T('KI') })
+  $('#dock-send').title = T('Aktuelle Seite an {ai} übergeben', { ai: a?.name || T('die KI') })
   $('#btn-claude').hidden = !dockEnabled()
   // Assistent gewechselt: alte Seitenleisten-Webview verwerfen
   if (DOCK.claude && DOCK.claudeFor !== settings().assistant) {
@@ -2522,7 +2538,7 @@ function renderDock () {
 function toggleDock (force) {
   const open = force ?? !DOCK.open
   if (open && !dockEnabled() && !currentPanel()) {
-    return toast(assistant() ? `${assistant().name}-Seitenleiste ist aus` : 'Kein KI-Assistent gewählt',
+    return toast(assistant() ? T('{ai}-Seitenleiste ist aus', { ai: assistant().name }) : 'Kein KI-Assistent gewählt',
       'Du kannst das unter Einstellungen › KI-Assistent ändern.', 'chat', {
         actions: [{ label: 'Einstellungen', run: () => openSettings('claude') }]
       })
@@ -2543,7 +2559,7 @@ function openExtPanel ({ extId, tabId, url, name }) {
     trackWebview(wv)
     wv.addEventListener('close', () => closeExtPanel(extId, tabId, true))
     $('#dock-body').append(wv)
-    panel = { key, extId, tabId, url, wv, name: extId === CLAUDE_EXT ? 'Claude in Chrome' : (name || 'Erweiterung') }
+    panel = { key, extId, tabId, url, wv, name: extId === CLAUDE_EXT ? 'Claude in Chrome' : (name || T('Erweiterung')) }
     DOCK.panels.set(key, panel)
   }
   const t = activeTab()
@@ -2624,15 +2640,15 @@ async function pageAsMarkdown (tab = activeTab()) {
 async function copyPageAsMarkdown () {
   const page = await pageAsMarkdown()
   if (!page) return toast('Nicht möglich', 'Diese Seite lässt sich nicht als Markdown lesen.', 'markdown')
-  A.send('clipboard:write', `# ${page.title}\n\nQuelle: ${page.url}\n\n${page.markdown}`)
-  toast('Als Markdown kopiert', `${page.markdown.length.toLocaleString('de-DE')} Zeichen – bereit zum Einfügen in einen KI-Chat.`, 'markdown')
+  A.send('clipboard:write', `# ${page.title}\n\n${T('Quelle')}: ${page.url}\n\n${page.markdown}`)
+  toast('Als Markdown kopiert', T('{n} Zeichen – bereit zum Einfügen in einen KI-Chat.', { n: page.markdown.length.toLocaleString(I18N.locale) }), 'markdown')
 }
 
 async function insertIntoClaude (text) {
   const a = assistant()
   if (!dockEnabled()) {
     A.send('clipboard:write', text)
-    return toast('In Zwischenablage kopiert', a ? `Die ${a.name}-Seitenleiste ist ausgeschaltet.` : 'Es ist kein KI-Assistent gewählt.', 'chat')
+    return toast('In Zwischenablage kopiert', a ? T('Die {ai}-Seitenleiste ist ausgeschaltet.', { ai: a.name }) : 'Es ist kein KI-Assistent gewählt.', 'chat')
   }
   DOCK.mode = 'claude'
   toggleDock(true)
@@ -2666,31 +2682,31 @@ async function insertIntoClaude (text) {
     })(${JSON.stringify(text)})`)
   } catch {}
   wv.focus()
-  if (ok) toast(`An ${a.name} übergeben`, 'Mit Enter absenden oder vorher ergänzen.', 'chat')
+  if (ok) toast(T('An {ai} übergeben', { ai: a.name }), 'Mit Enter absenden oder vorher ergänzen.', 'chat')
   else {
     A.send('clipboard:write', text)
-    toast('In Zwischenablage kopiert', `Das Eingabefeld von ${a.name} war nicht erreichbar (z. B. Anmeldung oder Hinweisfenster offen) – einfach mit Strg+V einfügen.`, 'chat', { duration: 7000 })
+    toast('In Zwischenablage kopiert', T('Das Eingabefeld von {ai} war nicht erreichbar (z. B. Anmeldung oder Hinweisfenster offen) – einfach mit Strg+V einfügen.', { ai: a.name }), 'chat', { duration: 7000 })
   }
 }
 
 async function sendPageToClaude (prompt = 'context') {
   const page = await pageAsMarkdown()
   if (!page) return toast('Nicht möglich', 'Öffne zuerst eine Website.', 'chat')
-  const content = page.markdown.length > 60000 ? page.markdown.slice(0, 60000) + '\n\n[… gekürzt]' : page.markdown
+  const content = page.markdown.length > 60000 ? page.markdown.slice(0, 60000) + '\n\n' + T('[… gekürzt]') : page.markdown
   const intro = prompt === 'summarize'
-    ? 'Fasse die folgende Webseite prägnant auf Deutsch zusammen (Kernaussagen als Stichpunkte):'
-    : 'Hier ist der Inhalt einer Webseite, zu der ich Fragen habe:'
-  insertIntoClaude(`${intro}\n\n# ${page.title}\nQuelle: ${page.url}\n\n${content}\n\n`)
+    ? T('Fasse die folgende Webseite prägnant auf Deutsch zusammen (Kernaussagen als Stichpunkte):')
+    : T('Hier ist der Inhalt einer Webseite, zu der ich Fragen habe:')
+  insertIntoClaude(`${intro}\n\n# ${page.title}\n${T('Quelle')}: ${page.url}\n\n${content}\n\n`)
 }
 
 function sendSelectionToClaude (text, prompt) {
   const t = activeTab()
-  const src = t ? `„${t.title}“ (${t.url})` : 'einer Webseite'
-  const intro = prompt === 'explain'
-    ? `Erkläre mir diesen Ausschnitt aus ${src} verständlich:`
+  const src = t ? T('„{title}“ ({url})', { title: t.title, url: t.url }) : T('einer Webseite')
+  const intro = T(prompt === 'explain'
+    ? 'Erkläre mir diesen Ausschnitt aus {src} verständlich:'
     : prompt === 'translate'
-      ? `Übersetze diesen Ausschnitt aus ${src} ins Deutsche (falls er schon deutsch ist, ins Englische):`
-      : `Zu diesem Ausschnitt aus ${src}:`
+      ? 'Übersetze diesen Ausschnitt aus {src} ins Deutsche (falls er schon deutsch ist, ins Englische):'
+      : 'Zu diesem Ausschnitt aus {src}:', { src })
   insertIntoClaude(`${intro}\n\n> ${text.replace(/\n/g, '\n> ')}\n\n`)
 }
 
@@ -2710,22 +2726,22 @@ function openFocusPopover () {
   if (S.focus.active) {
     const rem = Math.max(0, S.focus.endsAt - Date.now())
     const p = showPopover($('#btn-focus'), `
-      <h3>${icon('focus')} Fokus läuft</h3>
-      <div class="sub">Noch ${fmtTime(rem / 1000)} – ablenkende Seiten sind gesperrt.</div>
-      <button class="btn block ghost" id="focus-stop">Session beenden</button>`, 'focus')
+      <h3>${icon('focus')} ${T('Fokus läuft')}</h3>
+      <div class="sub">${T('Noch {time} – ablenkende Seiten sind gesperrt.', { time: fmtTime(rem / 1000) })}</div>
+      <button class="btn block ghost" id="focus-stop">${T('Session beenden')}</button>`, 'focus')
     $('#focus-stop', p).onclick = () => { hidePopover(); endFocus(false) }
     return
   }
   let minutes = settings().focusMinutes || 25
   const list = settings().focusBlocklist
   const p = showPopover($('#btn-focus'), `
-    <h3>${icon('focus')} Fokus-Modus</h3>
-    <div class="sub">Ein Timer, eine ruhige Oberfläche und gesperrte Ablenkungen. Wenn die Zeit um ist, gibt Caravel alles wieder frei.</div>
-    <div class="seg" id="focus-min" style="width:100%;justify-content:space-between">${[15, 25, 45, 60, 90].map(m => `<button data-m="${m}" class="${m === minutes ? 'on' : ''}">${m} Min.</button>`).join('')}</div>
-    <div class="muted" style="font-size:12px;margin:12px 0 4px">Gesperrt während der Session:</div>
+    <h3>${icon('focus')} ${T('Fokus-Modus')}</h3>
+    <div class="sub">${T('Ein Timer, eine ruhige Oberfläche und gesperrte Ablenkungen. Wenn die Zeit um ist, gibt Caravel alles wieder frei.')}</div>
+    <div class="seg" id="focus-min" style="width:100%;justify-content:space-between">${[15, 25, 45, 60, 90].map(m => `<button data-m="${m}" class="${m === minutes ? 'on' : ''}">${T('{n} Min.', { n: m })}</button>`).join('')}</div>
+    <div class="muted" style="font-size:12px;margin:12px 0 4px">${T('Gesperrt während der Session:')}</div>
     <div style="font-size:12px;line-height:1.6;color:var(--text-2)">${list.map(esc).join(' · ') || '—'}</div>
     <div class="pop-sep"></div>
-    <div class="flex"><button class="btn ghost sm" id="focus-edit">Liste bearbeiten</button><span class="grow"></span><button class="btn" id="focus-start">${icon('play')} Starten</button></div>`, 'focus')
+    <div class="flex"><button class="btn ghost sm" id="focus-edit">${T('Liste bearbeiten')}</button><span class="grow"></span><button class="btn" id="focus-start">${icon('play')} ${T('Starten')}</button></div>`, 'focus')
   $('#focus-min', p).onclick = e => {
     const b = e.target.closest('[data-m]'); if (!b) return
     minutes = +b.dataset.m
@@ -2741,7 +2757,7 @@ function startFocus (minutes) {
   document.body.classList.add('focus-mode')
   S.focus.timer = setInterval(tickFocus, 1000)
   tickFocus()
-  toast('Fokus-Modus gestartet', `${minutes} Minuten konzentriertes Arbeiten. Du schaffst das!`, 'focus')
+  toast('Fokus-Modus gestartet', T('{n} Minuten konzentriertes Arbeiten. Du schaffst das!', { n: minutes }), 'focus')
   const t = activeTab()
   if (t?.ready && settings().focusBlocklist.some(d => hostOf(t.url) === d || hostOf(t.url).endsWith('.' + d))) t.webview.reload()
 }
@@ -2771,10 +2787,10 @@ function endFocus (completed) {
     if (t.url.startsWith('caravel://blocked')) loadInTab(t, displayUrl(t.url))
   }
   if (completed) {
-    toast('Fokus-Session geschafft! 🎉', `${minutes} Minuten fokussiert · ${fs.sessions} Sessions insgesamt`, 'sparkles', { duration: 7000 })
-    new Notification('Caravel – Fokus-Session beendet', { body: `Stark! ${minutes} Minuten fokussiert. Zeit für eine Pause.`, silent: false })
+    toast('Fokus-Session geschafft! 🎉', T('{n} Minuten fokussiert · {s} Sessions insgesamt', { n: minutes, s: fs.sessions }), 'sparkles', { duration: 7000 })
+    new Notification(T('Caravel – Fokus-Session beendet'), { body: T('Stark! {n} Minuten fokussiert. Zeit für eine Pause.', { n: minutes }), silent: false })
   } else {
-    toast('Fokus-Modus beendet', `${minutes} Minuten fokussiert.`, 'focus')
+    toast('Fokus-Modus beendet', T('{n} Minuten fokussiert.', { n: minutes }), 'focus')
   }
 }
 
@@ -2786,11 +2802,11 @@ function endFocus (completed) {
 // Klick auf ein aktives Gerät beendet die Übertragung. Quellen: App der Website (Cast SDK), Tab, Bildschirm,
 // das Video der Seite direkt oder eine lokale Datei.
 const CAST_SOURCES = {
-  app: { icon: 'cast', label: c => `App von ${c.page?.host || 'dieser Website'}` },
-  tab: { icon: 'tab', label: () => 'Tab streamen' },
-  screen: { icon: 'monitor', label: () => 'Bildschirm streamen' },
-  media: { icon: 'play', label: () => 'Nur das Video dieser Seite' },
-  file: { icon: 'folder', label: () => 'Datei streamen' }
+  app: { icon: 'cast', label: c => T('App von {host}', { host: c.page?.host || T('dieser Website') }) },
+  tab: { icon: 'tab', label: () => T('Tab streamen') },
+  screen: { icon: 'monitor', label: () => T('Bildschirm streamen') },
+  media: { icon: 'play', label: () => T('Nur das Video dieser Seite') },
+  file: { icon: 'folder', label: () => T('Datei streamen') }
 }
 
 const castHost = origin => { try { return new URL(origin).hostname.replace(/^www\./, '') } catch { return '' } }
@@ -2816,7 +2832,7 @@ async function openCast (opts = {}) {
     const app = await A.invoke('cast:page-app', t.wcId).catch(() => null)
     if (app) c.page = { ...app, host: castHost(app.origin) }
   }
-  c.media = c.preset ? { url: c.preset, title: 'Ausgewähltes Medium' } : c.request ? null : await detectMedia()
+  c.media = c.preset ? { url: c.preset, title: T('Ausgewähltes Medium') } : c.request ? null : await detectMedia()
   c.source = c.page ? 'app' : c.preset ? 'media' : 'tab'
   renderCast()
   if (c.page) {
@@ -2853,10 +2869,10 @@ async function detectMedia () {
 }
 
 function castSessionLabel (s) {
-  if (s.kind === 'tab') return `Tab wird gestreamt · ${s.title || ''}`
-  if (s.kind === 'screen') return 'Bildschirm wird gestreamt'
+  if (s.kind === 'tab') return T('Tab wird gestreamt · {title}', { title: s.title || '' })
+  if (s.kind === 'screen') return T('Bildschirm wird gestreamt')
   if (s.kind === 'app') return s.appName || s.title || 'App'
-  return (s.state === 'PAUSED' ? 'Pausiert · ' : '') + (s.title || 'Medium')
+  return (s.state === 'PAUSED' ? T('Pausiert') + ' · ' : '') + (s.title || T('Medium'))
 }
 
 function castTime (s) {
@@ -2869,13 +2885,13 @@ function castControls (s) {
   const t = castTime(s)
   return `<div class="cast-ctl" data-dev="${esc(s.deviceId)}">
     ${playable ? `<div class="flex">
-      <button class="icon-btn sm" data-c="toggle" title="${s.state === 'PAUSED' ? 'Fortsetzen' : 'Pause'}">${icon(s.state === 'PAUSED' ? 'play' : 'pause')}</button>
+      <button class="icon-btn sm" data-c="toggle" title="${s.state === 'PAUSED' ? T('Fortsetzen') : T('Pause')}">${icon(s.state === 'PAUSED' ? 'play' : 'pause')}</button>
       <input type="range" class="grow" data-c="seek" min="0" max="${Math.round(s.duration)}" value="${Math.round(t)}">
       <span class="muted ct-time">${fmtTime(t)} / ${fmtTime(s.duration)}</span>
     </div>` : ''}
     <div class="flex">
-      <button class="icon-btn sm" data-c="mute" title="${s.volume?.muted ? 'Ton an' : 'Stumm'}">${icon(s.volume?.muted ? 'mute' : 'volume')}</button>
-      <input type="range" class="grow" data-c="vol" min="0" max="100" value="${vol}" title="Lautstärke am Gerät">
+      <button class="icon-btn sm" data-c="mute" title="${s.volume?.muted ? T('Ton an') : T('Stumm')}">${icon(s.volume?.muted ? 'mute' : 'volume')}</button>
+      <input type="range" class="grow" data-c="vol" min="0" max="100" value="${vol}" title="${T('Lautstärke am Gerät')}">
     </div>
   </div>`
 }
@@ -2894,11 +2910,11 @@ function tickCastControls () {
 function castSourceText (c) {
   const t = activeTab()
   switch (c.source) {
-    case 'app': return c.request ? `${c.page.host} möchte auf ein Gerät streamen` : `App von ${c.page?.host} auf dem Gerät öffnen`
-    case 'tab': return `Tab: ${t?.title || 'Aktueller Tab'}`
-    case 'screen': return 'Gesamter Bildschirm mit Ton'
-    case 'media': return c.media?.title || 'Video dieser Seite'
-    case 'file': return c.file ? c.file.split(/[\\/]/).pop() : 'Datei auswählen …'
+    case 'app': return c.request ? T('{host} möchte auf ein Gerät streamen', { host: c.page.host }) : T('App von {host} auf dem Gerät öffnen', { host: c.page?.host })
+    case 'tab': return T('Tab: {title}', { title: t?.title || T('Aktueller Tab') })
+    case 'screen': return T('Gesamter Bildschirm mit Ton')
+    case 'media': return c.media?.title || T('Video dieser Seite')
+    case 'file': return c.file ? c.file.split(/[\\/]/).pop() : T('Datei auswählen …')
   }
   return ''
 }
@@ -2915,19 +2931,19 @@ function renderCast () {
     let status = d.app || d.model
     let disabled = false
     if (s) status = castSessionLabel(s)
-    else if (c.source === 'app' && c.avail && c.avail[d.id] === false) { status = 'Diese App wird hier nicht unterstützt'; disabled = true }
-    else if (mirrorSrc && d.kind !== 'tv') status = `Nur Ton · ${status}`
-    return `<div class="device${s ? ' active' : ''}${disabled ? ' disabled' : ''}" data-d="${esc(d.id)}" title="${s && !c.request ? 'Klicken zum Beenden' : ''}">
+    else if (c.source === 'app' && c.avail && c.avail[d.id] === false) { status = T('Diese App wird hier nicht unterstützt'); disabled = true }
+    else if (mirrorSrc && d.kind !== 'tv') status = T('Nur Ton · {status}', { status })
+    return `<div class="device${s ? ' active' : ''}${disabled ? ' disabled' : ''}" data-d="${esc(d.id)}" title="${s && !c.request ? T('Klicken zum Beenden') : ''}">
         <div class="d-ico">${icon(ico)}</div>
         <div class="d-main"><div class="d-name">${esc(d.name)}</div><div class="d-host">${esc(status)}</div></div>
-        ${s ? `<button class="btn sm ghost d-stop" data-stop="${esc(d.id)}">Beenden</button>` : ''}
+        ${s ? `<button class="btn sm ghost d-stop" data-stop="${esc(d.id)}">${T('Beenden')}</button>` : ''}
       </div>${s ? castControls(s) : ''}`
   }
 
   const html = `
     <div class="cast-head">
-      <h3>${icon('cast')} Streamen</h3>
-      ${sources.length > 1 ? `<button class="btn ghost sm" id="cast-src">Quellen ${icon('chevronDown')}</button>` : ''}
+      <h3>${icon('cast')} ${T('Streamen')}</h3>
+      ${sources.length > 1 ? `<button class="btn ghost sm" id="cast-src">${T('Quellen')} ${icon('chevronDown')}</button>` : ''}
     </div>
     <div class="cast-source">${icon(CAST_SOURCES[c.source].icon)}<span>${esc(castSourceText(c))}</span></div>
     ${c.menu ? `<div class="cast-menu">${sources.map(k => `
@@ -2935,13 +2951,12 @@ function renderCast () {
     </div>` : ''}
     <div class="cast-devs">${c.devices.map(row).join('')}</div>
     ${c.scanning || !c.devices.length
-      ? `<div class="scan">${c.scanning ? '<span class="pulse"></span> Suche nach Geräten …' : `${icon('info')} Keine Geräte gefunden. PC und Chromecast müssen im selben WLAN sein.`}</div>`
+      ? `<div class="scan">${c.scanning ? `<span class="pulse"></span> ${T('Suche nach Geräten …')}` : `${icon('info')} ${T('Keine Geräte gefunden. PC und Chromecast müssen im selben WLAN sein.')}`}</div>`
       : ''}`
 
   const p = S.popover === 'cast' ? $('#popover') : null
-  const pop = p || showPopover($('#btn-cast'), html, 'cast')
+  const pop = p || showPopover($('#btn-cast'), html, 'cast', 380)
   if (p) p.innerHTML = html
-  pop.style.width = '380px'
 
   pop.onclick = async e => {
     if (e.target.closest('#cast-src')) { c.menu = !c.menu; return renderCast() }
@@ -2998,10 +3013,10 @@ async function castStart (deviceId) {
     c.request = null
     A.send('ui:reply', req.reqId, deviceId)
     hidePopover()
-    return toast('Verbinde …', `${castHost(req.origin)} auf ${dev.name}`, 'cast', { duration: 2500 })
+    return toast('Verbinde …', T('{host} auf {device}', { host: castHost(req.origin), device: dev.name }), 'cast', { duration: 2500 })
   }
   const t = activeTab()
-  toast('Verbinde …', `Streame auf ${dev.name}`, 'cast', { duration: 2500 })
+  toast('Verbinde …', T('Streame auf {device}', { device: dev.name }), 'cast', { duration: 2500 })
   let res = { ok: true }
   if (c.source === 'app') res = await A.invoke('cast:start-app', deviceId, t?.wcId)
   else if (c.source === 'tab' || c.source === 'screen') res = await startMirror(c.source, dev)
@@ -3024,7 +3039,7 @@ function castStop (deviceId) {
 async function startMirror (kind, dev) {
   const c = S.cast
   const t = activeTab()
-  if (kind === 'tab' && !t?.wcId) return { ok: false, error: 'Kein Tab zum Streamen geöffnet.' }
+  if (kind === 'tab' && !t?.wcId) return { ok: false, error: T('Kein Tab zum Streamen geöffnet.') }
   const audioOnly = dev.kind !== 'tv'
   stopMirror()
   const { token } = await A.invoke('cast:mirror-prepare', kind, t?.wcId, audioOnly)
@@ -3036,13 +3051,13 @@ async function startMirror (kind, dev) {
     })
   } catch (err) {
     A.send('cast:mirror-end', token)
-    return { ok: false, error: `Aufnahme nicht möglich (${err.message})` }
+    return { ok: false, error: T('Aufnahme nicht möglich ({error})', { error: err.message }) }
   }
   if (audioOnly) for (const tr of stream.getVideoTracks()) { tr.stop(); stream.removeTrack(tr) }
   const hasAudio = stream.getAudioTracks().length > 0
   if (audioOnly && !hasAudio) {
     A.send('cast:mirror-end', token)
-    return { ok: false, error: 'Es wurde kein Ton zum Streamen gefunden.' }
+    return { ok: false, error: T('Es wurde kein Ton zum Streamen gefunden.') }
   }
   const mimeType = audioOnly ? 'audio/webm;codecs=opus' : hasAudio ? 'video/webm;codecs=vp8,opus' : 'video/webm;codecs=vp8'
   // Regelmäßige Schlüsselbilder: ein später verbundenes Gerät kann so nach spätestens 2 s einsteigen
@@ -3055,7 +3070,7 @@ async function startMirror (kind, dev) {
   for (const tr of stream.getTracks()) {
     tr.addEventListener('ended', () => { if (c.mirror === m) castStop(dev.id) })
   }
-  const title = kind === 'tab' ? (t.title || t.url) : 'Bildschirm'
+  const title = kind === 'tab' ? (t.title || t.url) : T('Bildschirm')
   const res = await A.invoke('cast:mirror-start', dev.id, { token, kind, title, audioOnly, wcId: t?.wcId })
   if (!res.ok && c.mirror === m) stopMirror()
   return res
@@ -3082,98 +3097,106 @@ async function openSettings (section = 'general') {
   const cs = section === 'claude' ? await claudeStatus() : {}
   const st = settings()
   const nav = [
-    ['general', 'settings', 'Allgemein'],
-    ['appearance', 'sparkles', 'Darstellung'],
-    ['claude', 'chat', 'KI-Assistent'],
-    ['adblock', 'shieldCheck', 'Werbeblocker'],
+    ['general', 'settings', T('Allgemein')],
+    ['appearance', 'sparkles', T('Darstellung')],
+    ['claude', 'chat', T('KI-Assistent')],
+    ['adblock', 'shieldCheck', T('Werbeblocker')],
     ['vpn', 'vpn', 'VPN'],
-    ['privacy', 'lock', 'Privatsphäre'],
-    ['performance', 'bolt', 'Leistung'],
-    ['focus', 'focus', 'Fokus-Modus'],
-    ['about', 'info', 'Über Caravel']
+    ['privacy', 'lock', T('Privatsphäre')],
+    ['performance', 'bolt', T('Leistung')],
+    ['focus', 'focus', T('Fokus-Modus')],
+    ['about', 'info', T('Über Caravel')]
   ]
   const perms = Object.entries(S.data.permissions || {})
-  const PERM_DE = { media: 'Kamera/Mikrofon', geolocation: 'Standort', notifications: 'Benachrichtigungen', 'clipboard-read': 'Zwischenablage', midi: 'MIDI', midiSysex: 'MIDI', 'display-capture': 'Bildschirmaufnahme', openExternal: 'Externe Apps', 'idle-detection': 'Inaktivität', hid: 'HID-Geräte', serial: 'Serielle Geräte', usb: 'USB-Geräte' }
+  const PERM_NAMES = { media: 'Kamera/Mikrofon', geolocation: 'Standort', notifications: 'Benachrichtigungen', 'clipboard-read': 'Zwischenablage', midi: 'MIDI', midiSysex: 'MIDI', 'display-capture': 'Bildschirmaufnahme', openExternal: 'Externe Apps', 'idle-detection': 'Inaktivität', hid: 'HID-Geräte', serial: 'Serielle Geräte', usb: 'USB-Geräte' }
+  const ai = ASSISTANTS[st.assistant]
+  const mcpClient = st.assistant === 'chatgpt' ? 'Codex' : 'Claude Code'
+  const row = (title, desc, control) => `<div class="set-row"><div><div class="t">${title}</div>${desc ? `<div class="d">${desc}</div>` : ''}</div>${control}</div>`
+  const toggle = (key, on) => `<label class="switch"><input type="checkbox" data-s="${key}" ${on ? 'checked' : ''}><span></span></label>`
   const sections = {
-    general: `<h3>Allgemein</h3>
-      <div class="set-row"><div><div class="t">Dein Name</div><div class="d">Für die persönliche Begrüßung auf der Startseite.</div></div><input class="input" data-s="userName" value="${esc(st.userName)}" placeholder="Name" style="width:200px"></div>
-      <div class="set-row"><div><div class="t">Suchmaschine</div><div class="d">Wird in der Adressleiste und auf der Startseite verwendet.</div></div><select class="input" data-s="searchEngine">${Object.entries(SEARCH_ENGINES).map(([k, v]) => `<option value="${k}" ${k === st.searchEngine ? 'selected' : ''}>${v.name}</option>`).join('')}</select></div>
-      <div class="set-row"><div><div class="t">Sitzung wiederherstellen</div><div class="d">Beim Start alle Spaces und Tabs wieder öffnen (schlafend, bis sie gebraucht werden).</div></div><label class="switch"><input type="checkbox" data-s="restoreSession" ${st.restoreSession ? 'checked' : ''}><span></span></label></div>
-      <div class="set-row"><div><div class="t">Standardbrowser</div><div class="d">Caravel als Standard für Links und HTML-Dateien festlegen.</div></div><button class="btn ghost" id="set-default">Windows-Einstellungen öffnen</button></div>`,
-    appearance: `<h3>Darstellung</h3>
-      <div class="set-row"><div><div class="t">Design</div></div><div class="seg" data-seg="theme">${[['dark', 'Dunkel'], ['light', 'Hell'], ['system', 'System']].map(([k, l]) => `<button data-v="${k}" class="${st.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-      <div class="set-row"><div><div class="t">Websites abdunkeln</div><div class="d">Im dunklen Design werden Seiten ohne eigenen Dunkelmodus (z. B. die Google-Suche) automatisch dunkel dargestellt – wie Chromes „Automatischer dunkler Modus für Webinhalte“. Seiten mit eigenem Dunkelmodus bleiben unverändert.</div></div><label class="switch"><input type="checkbox" data-s="autoDarkPages" ${st.autoDarkPages !== false ? 'checked' : ''}><span></span></label></div>
-      <div class="set-row"><div><div class="t">Ambient-Farben</div><div class="d">Die Oberfläche übernimmt dezent die Markenfarbe der aktuellen Website.</div></div><label class="switch"><input type="checkbox" data-s="ambient" ${st.ambient ? 'checked' : ''}><span></span></label></div>
-      <div class="set-row" style="display:block"><div class="t">Tab-Leiste</div><div class="d">Wo und wie die Tabs angezeigt werden.</div>
+    general: `<h3>${T('Allgemein')}</h3>
+      ${row(T('Sprache'), T('Sprache der Oberfläche und der internen Seiten. „Automatisch“ folgt der Windows-Sprache.'),
+        `<div class="seg" data-seg="language">${[['auto', T('Automatisch')], ['de', 'Deutsch'], ['en', 'English']].map(([k, l]) => `<button data-v="${k}" class="${(st.language || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
+      ${row(T('Dein Name'), T('Für die persönliche Begrüßung auf der Startseite.'), `<input class="input" data-s="userName" value="${esc(st.userName)}" placeholder="${T('Name')}" style="width:200px">`)}
+      ${row(T('Suchmaschine'), T('Wird in der Adressleiste und auf der Startseite verwendet.'), `<select class="input" data-s="searchEngine">${Object.entries(SEARCH_ENGINES).map(([k, v]) => `<option value="${k}" ${k === st.searchEngine ? 'selected' : ''}>${v.name}</option>`).join('')}</select>`)}
+      ${row(T('Sitzung wiederherstellen'), T('Beim Start alle Spaces und Tabs wieder öffnen (schlafend, bis sie gebraucht werden).'), toggle('restoreSession', st.restoreSession))}
+      ${row(T('Standardbrowser'), T('Caravel als Standard für Links und HTML-Dateien festlegen.'), `<button class="btn ghost" id="set-default">${T('Windows-Einstellungen öffnen')}</button>`)}`,
+    appearance: `<h3>${T('Darstellung')}</h3>
+      ${row(T('Design'), '', `<div class="seg" data-seg="theme">${[['dark', T('Dunkel')], ['light', T('Hell')], ['system', T('System')]].map(([k, l]) => `<button data-v="${k}" class="${st.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
+      ${row(T('Websites abdunkeln'), T('Im dunklen Design werden Seiten ohne eigenen Dunkelmodus (z. B. die Google-Suche) automatisch dunkel dargestellt – wie Chromes „Automatischer dunkler Modus für Webinhalte“. Seiten mit eigenem Dunkelmodus bleiben unverändert.'), toggle('autoDarkPages', st.autoDarkPages !== false))}
+      ${row(T('Ambient-Farben'), T('Die Oberfläche übernimmt dezent die Markenfarbe der aktuellen Website.'), toggle('ambient', st.ambient))}
+      <div class="set-row" style="display:block"><div class="t">${T('Tab-Leiste')}</div><div class="d">${T('Wo und wie die Tabs angezeigt werden.')}</div>
         <div class="layout-pick" data-seg="tabLayout">${[
-          ['sidebar', 'Caravel', 'Seitenleiste links', '<rect x="1" y="1" width="62" height="42" rx="5" class="lp-frame"/><rect x="4" y="4" width="15" height="36" rx="3" class="lp-bar"/><rect x="6" y="9" width="11" height="3" rx="1.5" class="lp-acc"/><rect x="6" y="14" width="11" height="3" rx="1.5" class="lp-dim"/><rect x="6" y="19" width="11" height="3" rx="1.5" class="lp-dim"/><rect x="22" y="4" width="38" height="5" rx="2.5" class="lp-dim"/><rect x="22" y="12" width="38" height="28" rx="3" class="lp-page"/>'],
-          ['chrome', 'Chrome', 'Tabs oben', '<rect x="1" y="1" width="62" height="42" rx="5" class="lp-frame"/><rect x="5" y="4" width="16" height="6" rx="2" class="lp-acc"/><rect x="23" y="5" width="13" height="4" rx="2" class="lp-dim"/><rect x="38" y="5" width="13" height="4" rx="2" class="lp-dim"/><rect x="4" y="10" width="56" height="7" rx="2" class="lp-bar"/><rect x="4" y="19" width="56" height="21" rx="3" class="lp-page"/>'],
-          ['safari', 'Safari', 'Tabs unter der Adressleiste', '<rect x="1" y="1" width="62" height="42" rx="5" class="lp-frame"/><rect x="14" y="4" width="36" height="5" rx="2.5" class="lp-dim"/><rect x="4" y="11" width="18" height="5" rx="2" class="lp-acc"/><rect x="23" y="11" width="18" height="5" rx="2" class="lp-bar"/><rect x="42" y="11" width="18" height="5" rx="2" class="lp-bar"/><rect x="4" y="19" width="56" height="21" rx="3" class="lp-page"/>']
+          ['sidebar', 'Caravel', T('Seitenleiste links'), '<rect x="1" y="1" width="62" height="42" rx="5" class="lp-frame"/><rect x="4" y="4" width="15" height="36" rx="3" class="lp-bar"/><rect x="6" y="9" width="11" height="3" rx="1.5" class="lp-acc"/><rect x="6" y="14" width="11" height="3" rx="1.5" class="lp-dim"/><rect x="6" y="19" width="11" height="3" rx="1.5" class="lp-dim"/><rect x="22" y="4" width="38" height="5" rx="2.5" class="lp-dim"/><rect x="22" y="12" width="38" height="28" rx="3" class="lp-page"/>'],
+          ['chrome', 'Chrome', T('Tabs oben'), '<rect x="1" y="1" width="62" height="42" rx="5" class="lp-frame"/><rect x="5" y="4" width="16" height="6" rx="2" class="lp-acc"/><rect x="23" y="5" width="13" height="4" rx="2" class="lp-dim"/><rect x="38" y="5" width="13" height="4" rx="2" class="lp-dim"/><rect x="4" y="10" width="56" height="7" rx="2" class="lp-bar"/><rect x="4" y="19" width="56" height="21" rx="3" class="lp-page"/>'],
+          ['safari', 'Safari', T('Tabs unter der Adressleiste'), '<rect x="1" y="1" width="62" height="42" rx="5" class="lp-frame"/><rect x="14" y="4" width="36" height="5" rx="2.5" class="lp-dim"/><rect x="4" y="11" width="18" height="5" rx="2" class="lp-acc"/><rect x="23" y="11" width="18" height="5" rx="2" class="lp-bar"/><rect x="42" y="11" width="18" height="5" rx="2" class="lp-bar"/><rect x="4" y="19" width="56" height="21" rx="3" class="lp-page"/>']
         ].map(([k, l, d, svg]) => `<button data-v="${k}" class="${tabLayout() === k ? 'on' : ''}"><svg viewBox="0 0 64 44">${svg}</svg><b>${l}</b><span>${d}</span></button>`).join('')}</div></div>
       ${tabLayout() === 'sidebar'
-        ? `<div class="set-row"><div><div class="t">Kompakte Seitenleiste</div><div class="d">Nur Symbole anzeigen (Strg+B).</div></div><label class="switch"><input type="checkbox" data-s="sidebarCollapsed" ${st.sidebarCollapsed ? 'checked' : ''}><span></span></label></div>`
-        : `<div class="set-row"><div><div class="t">Favoritenleiste</div><div class="d">Deine Favoriten als Leiste unter der Adressleiste (Strg+B).</div></div><label class="switch"><input type="checkbox" data-s="showFavbar" ${st.showFavbar !== false ? 'checked' : ''}><span></span></label></div>`}
-      <div class="set-row"><div><div class="t">Kompakte Darstellung</div><div class="d">Niedrigere Leisten und Tabs – mehr Platz für Webseiten.</div></div><label class="switch"><input type="checkbox" data-s="compactUi" ${st.compactUi ? 'checked' : ''}><span></span></label></div>
-      <div class="set-row"><div><div class="t">Space-Farbe</div><div class="d">Jeder Space hat seine eigene Akzentfarbe – per Rechtsklick auf das Space-Symbol änderbar.</div></div><button class="btn ghost" id="set-space">Aktuellen Space bearbeiten</button></div>`,
-    claude: `<h3>KI-Assistent</h3>
-      <div class="set-row"><div><div class="t">Assistent</div><div class="d">Welcher KI-Dienst in Caravel eingebunden wird. Bei „Keiner“ verschwinden Seitenleiste, Kontextmenü-Einträge und Agenten-Schnittstelle vollständig.</div></div><div class="seg" data-seg="assistant">${[['claude', 'Claude'], ['chatgpt', 'ChatGPT'], ['none', 'Keiner']].map(([k, l]) => `<button data-v="${k}" class="${(st.assistant || 'claude') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-      ${ASSISTANTS[st.assistant] ? `<div class="set-row"><div><div class="t">${ASSISTANTS[st.assistant].name}-Seitenleiste</div><div class="d">Blendet ${st.assistant === 'chatgpt' ? 'chatgpt.com' : 'claude.ai'} neben jeder Seite ein (Strg+E) und ergänzt Kontextmenüs wie „Seite zusammenfassen“, „Mit ${ASSISTANTS[st.assistant].name} erklären“ oder „Seite übergeben“ (Strg+Umschalt+L).</div></div><label class="switch"><input type="checkbox" data-s="claudeSidebar" ${st.claudeSidebar ? 'checked' : ''}><span></span></label></div>` : ''}
+        ? row(T('Kompakte Seitenleiste'), T('Nur Symbole anzeigen (Strg+B).'), toggle('sidebarCollapsed', st.sidebarCollapsed))
+        : row(T('Favoritenleiste'), T('Deine Favoriten als Leiste unter der Adressleiste (Strg+B).'), toggle('showFavbar', st.showFavbar !== false))}
+      ${row(T('Kompakte Darstellung'), T('Niedrigere Leisten und Tabs – mehr Platz für Webseiten.'), toggle('compactUi', st.compactUi))}
+      ${row(T('Space-Farbe'), T('Jeder Space hat seine eigene Akzentfarbe – per Rechtsklick auf das Space-Symbol änderbar.'), `<button class="btn ghost" id="set-space">${T('Aktuellen Space bearbeiten')}</button>`)}`,
+    claude: `<h3>${T('KI-Assistent')}</h3>
+      ${row(T('Assistent'), T('Welcher KI-Dienst in Caravel eingebunden wird. Bei „Keiner“ verschwinden Seitenleiste, Kontextmenü-Einträge und Agenten-Schnittstelle vollständig.'),
+        `<div class="seg" data-seg="assistant">${[['claude', 'Claude'], ['chatgpt', 'ChatGPT'], ['none', T('Keiner')]].map(([k, l]) => `<button data-v="${k}" class="${(st.assistant || 'claude') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
+      ${ai ? row(T('{ai}-Seitenleiste', { ai: ai.name }), T('Blendet {site} neben jeder Seite ein (Strg+E) und ergänzt Kontextmenüs wie „Seite zusammenfassen“, „Mit {ai} erklären“ oder „Seite übergeben“ (Strg+Umschalt+L).', { site: st.assistant === 'chatgpt' ? 'chatgpt.com' : 'claude.ai', ai: ai.name }), toggle('claudeSidebar', st.claudeSidebar)) : ''}
       ${st.assistant === 'claude' ? `<div class="set-row" style="display:block">
         <div class="flex"><div class="grow"><div class="t"><span class="status-dot ${cs.extensionInstalled ? 'ok' : ''}"></span>Claude in Chrome</div>
-          <div class="d">Die offizielle Erweiterung von Anthropic: Claude liest, klickt und füllt Formulare direkt im Tab. Caravel stellt die dafür nötigen Chrome-Schnittstellen (Seitenleiste, Tab-Gruppen, Debugger) über eine eigene Kompatibilitätsschicht bereit. Offiziell unterstützt Anthropic nur Chrome, Edge und Brave.</div></div>
-          ${cs.extensionInstalled ? '<button class="btn" id="cl-open">Öffnen</button>' : '<button class="btn" id="cl-install">Installieren</button>'}</div>
+          <div class="d">${T('Die offizielle Erweiterung von Anthropic: Claude liest, klickt und füllt Formulare direkt im Tab. Caravel stellt die dafür nötigen Chrome-Schnittstellen (Seitenleiste, Tab-Gruppen, Debugger) über eine eigene Kompatibilitätsschicht bereit. Offiziell unterstützt Anthropic nur Chrome, Edge und Brave.')}</div></div>
+          ${cs.extensionInstalled ? `<button class="btn" id="cl-open">${T('Öffnen')}</button>` : `<button class="btn" id="cl-install">${T('Installieren')}</button>`}</div>
       </div>
       <div class="set-row" style="display:block">
-        <div class="t"><span class="status-dot ${cs.nativeHost ? 'ok' : ''}"></span>Claude Code über Claude in Chrome</div>
-        <div class="d">${cs.nativeHost ? 'Claude Code ist auf diesem PC eingerichtet. Ist Claude in Chrome installiert und angemeldet, kann Claude Code darüber diesen Browser steuern (Start mit <code>claude --chrome</code>). Experimentell – zuverlässiger ist der MCP-Server unten.' : 'Nicht gefunden. Sobald Claude Code installiert und die Chrome-Integration eingerichtet ist, verbindet es sich über Claude in Chrome auch mit Caravel.'}</div>
+        <div class="t"><span class="status-dot ${cs.nativeHost ? 'ok' : ''}"></span>${T('Claude Code über Claude in Chrome')}</div>
+        <div class="d">${cs.nativeHost ? T('Claude Code ist auf diesem PC eingerichtet. Ist Claude in Chrome installiert und angemeldet, kann Claude Code darüber diesen Browser steuern (Start mit <code>claude --chrome</code>). Experimentell – zuverlässiger ist der MCP-Server unten.') : T('Nicht gefunden. Sobald Claude Code installiert und die Chrome-Integration eingerichtet ist, verbindet es sich über Claude in Chrome auch mit Caravel.')}</div>
       </div>` : ''}
-      ${ASSISTANTS[st.assistant] ? `<div class="set-row" style="display:block">
-        <div class="flex"><div class="grow"><div class="t"><span class="status-dot ${cs.mcpRunning ? 'ok' : cs.mcpEnabled ? 'warn' : ''}"></span>Caravel als MCP-Server für ${st.assistant === 'chatgpt' ? 'Codex' : 'Claude Code'}</div>
-          <div class="d">Ein in Caravel eingebauter MCP-Server. ${st.assistant === 'chatgpt' ? 'Codex' : 'Claude Code'} kann damit Tabs auflisten und öffnen, Seiten als Markdown lesen, Elemente anklicken, Formulare ausfüllen und Screenshots machen – z. B. zum Recherchieren oder zum Testen deiner eigenen Web-Projekte. Er lauscht nur lokal (127.0.0.1) und verlangt ein geheimes Zugangstoken. Gesteuerte Tabs erhalten ein Roboter-Symbol.</div></div>
-          <label class="switch"><input type="checkbox" data-s="claudeMcp" ${st.claudeMcp ? 'checked' : ''}><span></span></label></div>
+      ${ai ? `<div class="set-row" style="display:block">
+        <div class="flex"><div class="grow"><div class="t"><span class="status-dot ${cs.mcpRunning ? 'ok' : cs.mcpEnabled ? 'warn' : ''}"></span>${T('Caravel als MCP-Server für {client}', { client: mcpClient })}</div>
+          <div class="d">${T('Ein in Caravel eingebauter MCP-Server. {client} kann damit Tabs auflisten und öffnen, Seiten als Markdown lesen, Elemente anklicken, Formulare ausfüllen und Screenshots machen – z. B. zum Recherchieren oder zum Testen deiner eigenen Web-Projekte. Er lauscht nur lokal (127.0.0.1) und verlangt ein geheimes Zugangstoken. Gesteuerte Tabs erhalten ein Roboter-Symbol.', { client: mcpClient })}</div></div>
+          ${toggle('claudeMcp', st.claudeMcp)}</div>
         ${cs.mcpError ? `<div class="d" style="color:#f87171;margin-top:8px">${esc(cs.mcpError)}</div>` : ''}
-        ${st.claudeMcp ? `<div class="flex" style="margin-top:10px"><span class="muted" style="font-size:12px">Port</span><input class="input" data-s="claudeMcpPort" data-num value="${+st.claudeMcpPort || 47823}" style="width:100px"><span class="grow"></span><button class="btn ghost sm" id="cl-token">${icon('refresh')} Neues Token</button></div>
-        ${st.assistant === 'chatgpt' ? `<div class="muted" style="font-size:12px;margin:10px 0 6px"><span class="status-dot ${cs.codexConfigured ? 'ok' : cs.codexHasEntry ? 'warn' : ''}"></span>${cs.codexConfigured ? 'In Codex eingetragen – Codex neu starten, falls es gerade läuft.' : cs.codexHasEntry ? 'Codex kennt Caravel, aber mit altem Token oder Port – bitte neu eintragen.' : 'Caravel kann sich selbst in die Codex-Konfiguration eintragen'} (<code>${esc(cs.codexConfigPath || '~/.codex/config.toml')}</code>):</div>
+        ${st.claudeMcp ? `<div class="flex" style="margin-top:10px"><span class="muted" style="font-size:12px">Port</span><input class="input" data-s="claudeMcpPort" data-num value="${+st.claudeMcpPort || 47823}" style="width:100px"><span class="grow"></span><button class="btn ghost sm" id="cl-token">${icon('refresh')} ${T('Neues Token')}</button></div>
+        ${st.assistant === 'chatgpt' ? `<div class="muted" style="font-size:12px;margin:10px 0 6px"><span class="status-dot ${cs.codexConfigured ? 'ok' : cs.codexHasEntry ? 'warn' : ''}"></span>${T(cs.codexConfigured ? 'In Codex eingetragen – Codex neu starten, falls es gerade läuft.' : cs.codexHasEntry ? 'Codex kennt Caravel, aber mit altem Token oder Port – bitte neu eintragen.' : 'Caravel kann sich selbst in die Codex-Konfiguration eintragen')} (<code>${esc(cs.codexConfigPath || '~/.codex/config.toml')}</code>):</div>
         <div class="code-box" id="cl-cmd">[mcp_servers.caravel]
 url = "http://127.0.0.1:${+st.claudeMcpPort || 47823}/mcp"
 http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
-        <div class="flex" style="margin-top:8px"><button class="btn sm" id="cx-install">${icon('check')} In Codex eintragen</button><button class="btn ghost sm" id="cl-copy">${icon('copy')} Kopieren</button></div>` : `<div class="muted" style="font-size:12px;margin:10px 0 6px">Einmalig in einem Terminal ausführen (danach steht Caravel in Claude Code als Werkzeug bereit):</div>
+        <div class="flex" style="margin-top:8px"><button class="btn sm" id="cx-install">${icon('check')} ${T('In Codex eintragen')}</button><button class="btn ghost sm" id="cl-copy">${icon('copy')} ${T('Kopieren')}</button></div>` : `<div class="muted" style="font-size:12px;margin:10px 0 6px">${T('Einmalig in einem Terminal ausführen (danach steht Caravel in Claude Code als Werkzeug bereit):')}</div>
         <div class="code-box" id="cl-cmd">claude mcp add --transport http --scope user caravel http://127.0.0.1:${+st.claudeMcpPort || 47823}/mcp --header "Authorization: Bearer ${esc(cs.mcpToken || '')}"</div>
-        <button class="btn ghost sm" id="cl-copy" style="margin-top:8px">${icon('copy')} Befehl kopieren</button>`}` : ''}
+        <button class="btn ghost sm" id="cl-copy" style="margin-top:8px">${icon('copy')} ${T('Befehl kopieren')}</button>`}` : ''}
       </div>` : ''}`,
-    adblock: `<h3>Werbeblocker</h3>
-      <div class="set-row"><div><div class="t">Werbung & Tracker blockieren</div><div class="d">Nutzt die Filterlisten von uBlock Origin (uBlock filters, Quick fixes, EasyList, EasyPrivacy, EasyList Germany u. a.) inklusive der Skriptfilter gegen YouTube-Werbung. Die Listen werden täglich aktualisiert.</div></div><label class="switch"><input type="checkbox" data-s="adblock" ${st.adblock !== false ? 'checked' : ''}><span></span></label></div>
-      <div class="set-row"><div><div class="t">Cookie-Banner ausblenden</div><div class="d">Blendet Einwilligungs-Dialoge aus (uBlock-Liste „Cookie Notices“). Einzelne Seiten können dadurch anders aussehen.</div></div><label class="switch"><input type="checkbox" data-s="adblockCookies" ${st.adblockCookies ? 'checked' : ''}><span></span></label></div>
-      <div class="set-row" style="display:block"><div class="t">Pausiert auf</div>
-        ${(st.adblockAllowlist || []).length ? st.adblockAllowlist.map(h => `<div class="flex" style="margin-top:8px"><span class="grow">${esc(h)}</span><button class="btn ghost sm" data-allow="${esc(h)}">Entfernen</button></div>`).join('') : '<div class="d" style="margin-top:6px">Keine Ausnahmen. Über das Schild-Symbol in der Adressleiste lässt sich der Blocker pro Website pausieren.</div>'}
+    adblock: `<h3>${T('Werbeblocker')}</h3>
+      ${row(T('Werbung & Tracker blockieren'), T('Nutzt die Filterlisten von uBlock Origin (uBlock filters, Quick fixes, EasyList, EasyPrivacy, EasyList Germany u. a.) inklusive der Skriptfilter gegen YouTube-Werbung. Die Listen werden täglich aktualisiert.'), toggle('adblock', st.adblock !== false))}
+      ${row(T('Cookie-Banner ausblenden'), T('Blendet Einwilligungs-Dialoge aus (uBlock-Liste „Cookie Notices“). Einzelne Seiten können dadurch anders aussehen.'), toggle('adblockCookies', st.adblockCookies))}
+      <div class="set-row" style="display:block"><div class="t">${T('Pausiert auf')}</div>
+        ${(st.adblockAllowlist || []).length ? st.adblockAllowlist.map(h => `<div class="flex" style="margin-top:8px"><span class="grow">${esc(h)}</span><button class="btn ghost sm" data-allow="${esc(h)}">${T('Entfernen')}</button></div>`).join('') : `<div class="d" style="margin-top:6px">${T('Keine Ausnahmen. Über das Schild-Symbol in der Adressleiste lässt sich der Blocker pro Website pausieren.')}</div>`}
       </div>`,
     vpn: `<h3>VPN</h3>
-      <div class="set-row"><div><div class="t">Beim Start automatisch verbinden</div><div class="d">Verbindet mit dem zuletzt gewählten Tor-Land bzw. Server.</div></div><label class="switch"><input type="checkbox" data-s="vpnAutoConnect" ${st.vpnAutoConnect ? 'checked' : ''}><span></span></label></div>
-      <div class="set-row" style="display:block"><div class="t">So funktioniert das VPN in Caravel</div>
+      ${row(T('Beim Start automatisch verbinden'), T('Verbindet mit dem zuletzt gewählten Tor-Land bzw. Server.'), toggle('vpnAutoConnect', st.vpnAutoConnect))}
+      <div class="set-row" style="display:block"><div class="t">${T('So funktioniert das VPN in Caravel')}</div>
         <div class="d" style="max-width:none;margin-top:6px;line-height:1.6">
-          <b>Tor (kostenlos):</b> Caravel bringt Tor mit. Du wählst das Ausgangsland, Caravel baut die Verbindung auf und leitet alle Tabs hindurch. Langsamer als ein kommerzielles VPN, dafür ohne Konto und ohne Kosten.<br>
-          <b>Eigene Server:</b> WireGuard-Konfigurationen (z. B. kostenlos bei Proton VPN oder von Mullvad, IVPN, Windscribe) sowie SOCKS5- und HTTP(S)-Zugänge deines Anbieters. WireGuard läuft direkt in Caravel, ohne Treiber und ohne Administratorrechte.<br>
-          Das VPN gilt für den Browser, nicht für andere Programme auf dem PC. WebRTC wird bei aktivem VPN so eingeschränkt, dass deine echte IP nicht durchsickert.</div>
+          <b>${T('Tor (kostenlos):')}</b> ${T('Caravel bringt Tor mit. Du wählst das Ausgangsland, Caravel baut die Verbindung auf und leitet alle Tabs hindurch. Langsamer als ein kommerzielles VPN, dafür ohne Konto und ohne Kosten.')}<br>
+          <b>${T('Eigene Server:')}</b> ${T('WireGuard-Konfigurationen (z. B. kostenlos bei Proton VPN oder von Mullvad, IVPN, Windscribe) sowie SOCKS5- und HTTP(S)-Zugänge deines Anbieters. WireGuard läuft direkt in Caravel, ohne Treiber und ohne Administratorrechte.')}<br>
+          ${T('Das VPN gilt für den Browser, nicht für andere Programme auf dem PC. WebRTC wird bei aktivem VPN so eingeschränkt, dass deine echte IP nicht durchsickert.')}</div>
       </div>
-      <div class="flex"><button class="btn" id="vpn-open">${icon('vpn')} VPN-Menü öffnen</button></div>`,
-    privacy: `<h3>Privatsphäre & Sicherheit</h3>
-      <div class="set-row"><div><div class="t">Browserdaten löschen</div><div class="d">Entfernt die gewählten Daten aller Websites.</div></div><div class="flex"><button class="btn ghost sm" data-clear="cache">Cache</button><button class="btn ghost sm" data-clear="cookies">Cookies</button><button class="btn ghost sm" data-clear="storage">Website-Daten</button><button class="btn ghost sm" data-clear="history">Verlauf</button></div></div>
-      <div class="set-row" style="display:block"><div class="t">Gespeicherte Website-Berechtigungen</div>
-        ${perms.length ? perms.map(([origin, p]) => `<div class="flex" style="margin-top:8px"><span class="grow" style="word-break:break-all">${esc(origin)}<br><span class="muted" style="font-size:12px">${Object.entries(p).map(([k, v]) => `${PERM_DE[k] || k}: ${v ? 'erlaubt' : 'blockiert'}`).join(' · ')}</span></span><button class="btn ghost sm" data-perm="${esc(origin)}">Zurücksetzen</button></div>`).join('') : '<div class="d" style="margin-top:6px">Keine gespeicherten Berechtigungen.</div>'}
+      <div class="flex"><button class="btn" id="vpn-open">${icon('vpn')} ${T('VPN-Menü öffnen')}</button></div>`,
+    privacy: `<h3>${T('Privatsphäre & Sicherheit')}</h3>
+      ${row(T('Browserdaten löschen'), T('Entfernt die gewählten Daten aller Websites.'), `<div class="flex"><button class="btn ghost sm" data-clear="cache">${T('Cache')}</button><button class="btn ghost sm" data-clear="cookies">${T('Cookies')}</button><button class="btn ghost sm" data-clear="storage">${T('Website-Daten')}</button><button class="btn ghost sm" data-clear="history">${T('Verlauf')}</button></div>`)}
+      <div class="set-row" style="display:block"><div class="t">${T('Gespeicherte Website-Berechtigungen')}</div>
+        ${perms.length ? perms.map(([origin, p]) => `<div class="flex" style="margin-top:8px"><span class="grow" style="word-break:break-all">${esc(origin)}<br><span class="muted" style="font-size:12px">${Object.entries(p).map(([k, v]) => `${esc(T(PERM_NAMES[k] || k))}: ${v ? T('erlaubt') : T('blockiert')}`).join(' · ')}</span></span><button class="btn ghost sm" data-perm="${esc(origin)}">${T('Zurücksetzen')}</button></div>`).join('') : `<div class="d" style="margin-top:6px">${T('Keine gespeicherten Berechtigungen.')}</div>`}
       </div>`,
-    performance: `<h3>Leistung</h3>
-      <div class="set-row"><div><div class="t">Tab-Schlaf</div><div class="d">Inaktive Tabs werden nach dieser Zeit schlafen gelegt und geben ihren Arbeitsspeicher frei. Sie wachen beim Anklicken sofort wieder auf. Tabs mit Ton schlafen nie.</div></div><select class="input" data-s="sleepMinutes" data-num>${[[0, 'Nie'], [5, '5 Minuten'], [15, '15 Minuten'], [30, '30 Minuten'], [60, '1 Stunde'], [180, '3 Stunden']].map(([v, l]) => `<option value="${v}" ${+st.sleepMinutes === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-      <div class="set-row"><div><div class="t">Jetzt aufräumen</div><div class="d">Alle Hintergrund-Tabs sofort schlafen legen.</div></div><button class="btn ghost" id="set-sleep">${icon('zzz')} Tabs schlafen legen</button></div>`,
-    focus: `<h3>Fokus-Modus</h3>
-      <div class="set-row"><div><div class="t">Standarddauer</div></div><select class="input" data-s="focusMinutes" data-num>${[15, 25, 45, 60, 90].map(v => `<option value="${v}" ${+st.focusMinutes === v ? 'selected' : ''}>${v} Minuten</option>`).join('')}</select></div>
-      <div class="field" style="margin-top:14px"><label>Gesperrte Websites (eine Domain pro Zeile)</label><textarea class="input" rows="9" id="set-blocklist">${esc(st.focusBlocklist.join('\n'))}</textarea><span class="hint">Subdomains werden automatisch mitgesperrt (z. B. m.youtube.com).</span></div>
-      <div class="card"><div class="flex"><span style="color:var(--accent)">${icon('sparkles')}</span><div>Bisher <b>${S.data.focusStats.sessions}</b> abgeschlossene Sessions · <b>${S.data.focusStats.minutes}</b> fokussierte Minuten</div></div></div>`,
-    about: `<div class="about-hero">${$('.logo').outerHTML.replace('class="logo"', 'style="width:64px;height:64px"').replace('id="lg"', 'id="lg2"').replace('url(#lg)', 'url(#lg2)')}<div><h4>Caravel</h4><div class="muted">Version ${esc(info.version)} · Chromium ${esc(info.chrome)}</div></div></div>
-      <p style="line-height:1.6">Caravel ist ein Browser für Menschen, die im Web arbeiten, lernen und entdecken. Er verbindet die Chromium-Engine mit Ideen, die andere Browser nicht haben: <b>Spaces</b>, <b>Split View</b>, <b>Peek</b>, <b>Fokus-Modus</b>, <b>Seiten-Notizen</b>, <b>Zeitkapseln</b>, <b>Tab-Schlaf</b>, <b>Ambient-Farben</b>, einen <b>Leser-Modus mit Vorlesefunktion</b> und <b>Chromecast</b>.</p>
-      <div class="card"><div class="kbd-list"><div>Electron</div><div>${esc(info.electron)}</div><div>Chromium</div><div>${esc(info.chrome)}</div><div>Node.js</div><div>${esc(info.node)}</div><div>Download-Ordner</div><div>${esc(info.downloads)}</div></div></div>
-      <p class="muted" style="font-size:12px;line-height:1.6">Chrome-Erweiterungen: electron-chrome-extensions (GPL-3.0), electron-chrome-web-store (MIT). Werbeblocker: @ghostery/adblocker (MPL-2.0) mit den Filterlisten von uBlock Origin (GPL-3.0) und EasyList (GPL-3.0/CC BY-SA 3.0). VPN: Tor (BSD-3-Clause), wireproxy (ISC). Leser-Modus: Mozilla Readability (Apache-2.0), Turndown (MIT). Chromecast: castv2 (MIT), multicast-dns (MIT).<br>„Claude“ ist eine Marke von Anthropic, „ChatGPT“ und „Codex“ sind Marken von OpenAI. Caravel ist ein unabhängiges Projekt und steht in keiner Verbindung zu Anthropic, OpenAI, Google oder dem Tor Project.</p>`
+    performance: `<h3>${T('Leistung')}</h3>
+      ${row(T('Tab-Schlaf'), T('Inaktive Tabs werden nach dieser Zeit schlafen gelegt und geben ihren Arbeitsspeicher frei. Sie wachen beim Anklicken sofort wieder auf. Tabs mit Ton schlafen nie.'),
+        `<select class="input" data-s="sleepMinutes" data-num>${[[0, T('Nie')], [5, T('{n} Minuten', { n: 5 })], [15, T('{n} Minuten', { n: 15 })], [30, T('{n} Minuten', { n: 30 })], [60, T('1 Stunde')], [180, T('{n} Stunden', { n: 3 })]].map(([v, l]) => `<option value="${v}" ${+st.sleepMinutes === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+      ${row(T('Jetzt aufräumen'), T('Alle Hintergrund-Tabs sofort schlafen legen.'), `<button class="btn ghost" id="set-sleep">${icon('zzz')} ${T('Tabs schlafen legen')}</button>`)}`,
+    focus: `<h3>${T('Fokus-Modus')}</h3>
+      ${row(T('Standarddauer'), '', `<select class="input" data-s="focusMinutes" data-num>${[15, 25, 45, 60, 90].map(v => `<option value="${v}" ${+st.focusMinutes === v ? 'selected' : ''}>${T('{n} Minuten', { n: v })}</option>`).join('')}</select>`)}
+      <div class="field" style="margin-top:14px"><label>${T('Gesperrte Websites (eine Domain pro Zeile)')}</label><textarea class="input" rows="9" id="set-blocklist">${esc(st.focusBlocklist.join('\n'))}</textarea><span class="hint">${T('Subdomains werden automatisch mitgesperrt (z. B. m.youtube.com).')}</span></div>
+      <div class="card"><div class="flex"><span style="color:var(--accent)">${icon('sparkles')}</span><div>${T('Bisher <b>{s}</b> abgeschlossene Sessions · <b>{m}</b> fokussierte Minuten', { s: S.data.focusStats.sessions, m: S.data.focusStats.minutes })}</div></div></div>`,
+    about: `<div class="about-hero">${$('.logo').outerHTML.replace('class="logo"', 'style="width:64px;height:64px"').replace('id="lg"', 'id="lg2"').replace('url(#lg)', 'url(#lg2)')}<div><h4>Caravel</h4><div class="muted">${T('Version')} ${esc(info.version)} · Chromium ${esc(info.chrome)}</div></div></div>
+      <p style="line-height:1.6">${T('Caravel ist ein Browser für Menschen, die im Web arbeiten, lernen und entdecken. Er verbindet die Chromium-Engine mit Ideen, die andere Browser nicht haben: <b>Spaces</b>, <b>Split View</b>, <b>Peek</b>, <b>Fokus-Modus</b>, <b>Seiten-Notizen</b>, <b>Zeitkapseln</b>, <b>Tab-Schlaf</b>, <b>Ambient-Farben</b>, einen <b>Leser-Modus mit Vorlesefunktion</b> und <b>Chromecast</b>.')}</p>
+      <div class="card"><div class="kbd-list"><div>Electron</div><div>${esc(info.electron)}</div><div>Chromium</div><div>${esc(info.chrome)}</div><div>Node.js</div><div>${esc(info.node)}</div><div>${T('Download-Ordner')}</div><div>${esc(info.downloads)}</div></div></div>
+      <p class="muted" style="font-size:12px;line-height:1.6">${T('Chrome-Erweiterungen: electron-chrome-extensions (GPL-3.0), electron-chrome-web-store (MIT). Werbeblocker: @ghostery/adblocker (MPL-2.0) mit den Filterlisten von uBlock Origin (GPL-3.0) und EasyList (GPL-3.0/CC BY-SA 3.0). VPN: Tor (BSD-3-Clause), wireproxy (ISC). Leser-Modus: Mozilla Readability (Apache-2.0), Turndown (MIT). Chromecast: castv2 (MIT), multicast-dns (MIT).')}<br>${T('„Claude“ ist eine Marke von Anthropic, „ChatGPT“ und „Codex“ sind Marken von OpenAI. Caravel ist ein unabhängiges Projekt und steht in keiner Verbindung zu Anthropic, OpenAI, Google oder dem Tor Project.')}</p>`
   }
-  showModal(`<div class="settings"><nav><h2>Einstellungen</h2>${nav.map(([k, ic, l]) => `<button data-sec="${k}" class="${k === section ? 'on' : ''}">${icon(ic)} ${l}</button>`).join('')}</nav><section><button class="icon-btn sm close-x" data-close>${icon('x')}</button>${sections[section]}</section></div>`, { wide: true })
+  showModal(`<div class="settings"><nav><h2>${T('Einstellungen')}</h2>${nav.map(([k, ic, l]) => `<button data-sec="${k}" class="${k === section ? 'on' : ''}">${icon(ic)} ${l}</button>`).join('')}</nav><section><button class="icon-btn sm close-x" data-close>${icon('x')}</button>${sections[section]}</section></div>`, { wide: true })
   const card = $('#modal-card')
   card.querySelectorAll('[data-sec]').forEach(b => { b.onclick = () => openSettings(b.dataset.sec) })
   const apply = () => { save('settings'); applySettings() }
@@ -3224,6 +3247,25 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
     seg.onclick = e => { prevSeg(e); saveSettingsNow(); setTimeout(() => openSettings('claude'), 300) }
     if (cs.mcpToken) st.claudeMcpToken = cs.mcpToken
   }
+  // Sprache gewechselt: wirkt nach einem Neustart (Oberfläche, Menüs und interne Seiten)
+  const langSeg = card.querySelector('[data-seg="language"]')
+  if (langSeg) {
+    const prevLang = langSeg.onclick
+    langSeg.onclick = e => {
+      prevLang(e)
+      if (!e.target.closest('[data-v]')) return
+      saveSettingsNow()
+      const next = I18N.resolve(st.language, navigator.language)
+      $$('.toast[data-lang]').forEach(x => x.remove())
+      // zweisprachig, weil die neue Sprache erst nach dem Neustart gilt
+      toast(next === 'en' ? 'Restart required · Neustart nötig' : 'Neustart nötig · Restart required',
+        next === 'en' ? 'Caravel will switch to English after a restart.' : 'Caravel wechselt nach einem Neustart auf Deutsch.', 'refresh', {
+          duration: 12000,
+          actions: [{ label: next === 'en' ? 'Restart now' : 'Jetzt neu starten', run: () => { flushPending(); A.send('app:relaunch') } }]
+        })
+      $('#toasts').lastChild.dataset.lang = '1'
+    }
+  }
   // Tab-Leiste gewechselt: Abschnitt neu zeichnen (Seitenleisten- bzw. Favoritenleisten-Schalter)
   const layoutSeg = card.querySelector('[data-seg="tabLayout"]')
   if (layoutSeg) {
@@ -3235,7 +3277,7 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
     cxInstall.onclick = async () => {
       try {
         const file = await A.invoke('codex:install-mcp')
-        toast('In Codex eingetragen', `${file} – Codex ggf. neu starten. Caravel erscheint dort als MCP-Server „caravel“.`, 'check', { duration: 7000 })
+        toast('In Codex eingetragen', T('{file} – Codex ggf. neu starten. Caravel erscheint dort als MCP-Server „caravel“.', { file }), 'check', { duration: 7000 })
       } catch (err) {
         toast('Eintragen fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning', { duration: 7000 })
       }
@@ -3256,7 +3298,7 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
   if (clInstall) {
     clInstall.onclick = async () => {
       clInstall.disabled = true
-      clInstall.textContent = 'Wird installiert …'
+      clInstall.textContent = T('Wird installiert …')
       try {
         await A.invoke('claude:install-extension')
         toast('Claude in Chrome installiert', 'Öffne es über das Symbol in der Werkzeugleiste oder hier.', 'chat')
@@ -3306,10 +3348,10 @@ function showShortcuts () {
     ['Adressleiste', 'Strg L'], ['Split View', 'Strg Umschalt S'], ['Peek-Vorschau', 'Umschalt + Klick auf Link'],
     ['Leser-Modus', 'F9'], ['Fokus-Modus', 'Strg Umschalt F'], ['Screenshot', 'Strg Umschalt X'], ['Seiten-Notizen', 'Strg Umschalt N'],
     ['Lesezeichen', 'Strg D'], ['Auf Seite suchen', 'Strg F'], ['Verlauf', 'Strg H'], ['Downloads', 'Strg J'], ['Erweiterungen', 'Strg Umschalt E'],
-    ...(dockEnabled() ? [[`${assistant().name}-Seitenleiste`, 'Strg E'], [`Seite an ${assistant().name} übergeben`, 'Strg Umschalt L']] : []),
+    ...(dockEnabled() ? [[T('{ai}-Seitenleiste', { ai: assistant().name }), 'Strg E'], [T('Seite an {ai} übergeben', { ai: assistant().name }), 'Strg Umschalt L']] : []),
     ['Seitenleiste', 'Strg B'], ['Zoom', 'Strg + / Strg − / Strg 0'], ['Vollbild', 'F11'], ['Entwicklertools', 'F12'], ['Einstellungen', 'Strg ,']
   ]
-  showModal(`<div class="modal-head"><h2>Tastenkürzel</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div><div class="modal-body"><div class="kbd-list">${list.map(([a, b]) => `<div>${esc(a)}</div><div>${b.split(' / ').map(x => `<kbd>${esc(x)}</kbd>`).join(' ')}</div>`).join('')}</div></div><div class="modal-foot"><button class="btn" data-close>Alles klar</button></div>`)
+  showModal(`<div class="modal-head"><h2>${T('Tastenkürzel')}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div><div class="modal-body"><div class="kbd-list">${list.map(([a, b]) => `<div>${esc(T(a))}</div><div>${T(b).split(' / ').map(x => `<kbd>${esc(x)}</kbd>`).join(' ')}</div>`).join('')}</div></div><div class="modal-foot"><button class="btn" data-close>${T('Alles klar')}</button></div>`)
 }
 
 /* ---------------------------------------------------------------------
@@ -3365,7 +3407,7 @@ function zoom (dir) {
   t.webview.setZoomLevel(t.zoom)
   const pct = Math.round(Math.pow(1.2, t.zoom) * 100)
   $$('.toast[data-zoom]').forEach(x => x.remove())
-  toast(`Zoom ${pct} %`, 'Strg+0 setzt zurück', 'zoomIn', { duration: 1400 })
+  toast(`${T('Zoom')} ${pct} %`, 'Strg+0 setzt zurück', 'zoomIn', { duration: 1400 })
   $('#toasts').lastChild.dataset.zoom = '1'
 }
 
@@ -3474,21 +3516,21 @@ function showNextPermission () {
   const p = S.perms[0]
   if (!p) { box.hidden = true; return }
   const what = {
-    media: p.mediaTypes.includes('video') && p.mediaTypes.includes('audio') ? 'deine Kamera und dein Mikrofon verwenden' : p.mediaTypes.includes('video') ? 'deine Kamera verwenden' : 'dein Mikrofon verwenden',
-    geolocation: 'deinen Standort abrufen',
-    notifications: 'dir Benachrichtigungen senden',
-    'clipboard-read': 'deine Zwischenablage lesen',
-    'display-capture': 'deinen Bildschirm aufnehmen',
-    openExternal: 'eine externe Anwendung öffnen',
-    midi: 'MIDI-Geräte verwenden',
-    midiSysex: 'MIDI-Geräte steuern',
-    'idle-detection': 'erkennen, ob du aktiv bist',
-    'storage-access': 'auf gespeicherte Daten zugreifen',
-    'top-level-storage-access': 'auf gespeicherte Daten zugreifen'
-  }[p.permission] || `die Berechtigung „${p.permission}“ nutzen`
+    media: p.mediaTypes.includes('video') && p.mediaTypes.includes('audio') ? 'möchte deine Kamera und dein Mikrofon verwenden.' : p.mediaTypes.includes('video') ? 'möchte deine Kamera verwenden.' : 'möchte dein Mikrofon verwenden.',
+    geolocation: 'möchte deinen Standort abrufen.',
+    notifications: 'möchte dir Benachrichtigungen senden.',
+    'clipboard-read': 'möchte deine Zwischenablage lesen.',
+    'display-capture': 'möchte deinen Bildschirm aufnehmen.',
+    openExternal: 'möchte eine externe Anwendung öffnen.',
+    midi: 'möchte MIDI-Geräte verwenden.',
+    midiSysex: 'möchte MIDI-Geräte steuern.',
+    'idle-detection': 'möchte erkennen, ob du aktiv bist.',
+    'storage-access': 'möchte auf gespeicherte Daten zugreifen.',
+    'top-level-storage-access': 'möchte auf gespeicherte Daten zugreifen.'
+  }[p.permission] || 'möchte die Berechtigung „{name}“ nutzen.'
   const ic = { media: 'camera', geolocation: 'globe', notifications: 'info', openExternal: 'external' }[p.permission] || 'shield'
-  box.innerHTML = `<div class="p-head"><div class="t-ico">${icon(ic)}</div><div><div class="p-origin">${esc(p.origin.replace(/^https?:\/\//, ''))}</div><div class="muted">möchte ${esc(what)}.</div></div></div>
-    <div class="p-foot"><label><input type="checkbox" id="perm-remember" checked> Entscheidung merken</label><button class="btn ghost sm" data-p="0">Blockieren</button><button class="btn sm" data-p="1">Zulassen</button></div>`
+  box.innerHTML = `<div class="p-head"><div class="t-ico">${icon(ic)}</div><div><div class="p-origin">${esc(p.origin.replace(/^https?:\/\//, ''))}</div><div class="muted">${esc(T(what, { name: p.permission }))}</div></div></div>
+    <div class="p-foot"><label><input type="checkbox" id="perm-remember" checked> ${T('Entscheidung merken')}</label><button class="btn ghost sm" data-p="0">${T('Blockieren')}</button><button class="btn sm" data-p="1">${T('Zulassen')}</button></div>`
   box.hidden = false
   box.onclick = e => {
     const b = e.target.closest('[data-p]'); if (!b) return
@@ -3603,7 +3645,7 @@ function initGlobalEvents () {
     if (t === activeTab()) updateAdblockChip()
   })
   A.on('adblock:status', st => {
-    if (st.status === 'error') toast('Werbeblocker', `Filterlisten konnten nicht geladen werden: ${st.error}`, 'warning', { duration: 7000 })
+    if (st.status === 'error') toast('Werbeblocker', T('Filterlisten konnten nicht geladen werden: {error}', { error: st.error }), 'warning', { duration: 7000 })
   })
   A.on('vpn:state', st => {
     const prev = S.vpn?.status
@@ -3626,17 +3668,17 @@ function initGlobalEvents () {
   A.on('mcp:ui', async ({ reqId, op, id, url, background }) => {
     const reply = v => A.send('ui:reply', reqId, v)
     const byNum = n => S.tabs.get('t' + n)
-    const missing = n => ({ error: `Tab ${n} existiert nicht. Mit list_tabs die aktuellen IDs abrufen.` })
+    const missing = n => ({ error: T('Tab {n} existiert nicht. Mit list_tabs die aktuellen IDs abrufen.', { n }) })
     try {
       if (op === 'tabs') {
         return reply([...S.tabs.values()].map(t => ({
-          id: +t.id.slice(1), title: t.title, url: displayUrl(t.url) || 'Neuer Tab',
+          id: +t.id.slice(1), title: t.title, url: displayUrl(t.url) || T('Neuer Tab'),
           active: t.id === curSpace().activeId, sleeping: t.sleeping, space: space(t.spaceId)?.name
         })))
       }
       if (op === 'resolve') {
         const t = id ? byNum(id) : activeTab()
-        if (!t) return reply(id ? missing(id) : { error: 'Kein aktiver Tab.' })
+        if (!t) return reply(id ? missing(id) : { error: T('Kein aktiver Tab.') })
         if (!t.webview) wake(t)
         await whenReady(t)
         return reply(t.wcId)
@@ -3659,7 +3701,7 @@ function initGlobalEvents () {
         closeTab(t.id)
         return reply(true)
       }
-      reply({ error: 'Unbekannte Anfrage' })
+      reply({ error: T('Unbekannte Anfrage') })
     } catch (err) { reply({ error: err.message }) }
   })
   A.on('crx:sidepanel-open', info => openExtPanel(info))
@@ -3718,6 +3760,9 @@ function startSleepTimer () {
 }
 
 async function boot () {
+  // Sprache zuerst festlegen, damit schon die ersten Texte stimmen
+  try { I18N.setLang(await A.invoke('app:lang')) } catch {}
+  I18N.translateDom(document.body)
   S.data = await A.invoke('store:all')
   S.data.focusStats = S.data.focusStats || { sessions: 0, minutes: 0 }
   S.adblockBase = S.data.stats?.blocked || 0
@@ -3746,7 +3791,7 @@ async function boot () {
       sp.activeId = sp.tabIds[s.activeIndex] || sp.tabIds[0] || null
     }
   }
-  if (!S.spaces.length) S.spaces.push({ id: 'space-personal', name: 'Persönlich', color: '#f2545b', icon: '✦', tabIds: [], activeId: null, split: null })
+  if (!S.spaces.length) S.spaces.push({ id: 'space-personal', name: T('Persönlich'), color: '#f2545b', icon: '✦', tabIds: [], activeId: null, split: null })
   const start = space(S.data.activeSpace) ? S.data.activeSpace : S.spaces[0].id
   S.activeSpace = start
   renderSbTools()

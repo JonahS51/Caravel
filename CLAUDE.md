@@ -8,7 +8,7 @@ GitHub: https://github.com/JonahS51/Caravel (privat, Branch `main`).
 
 ```powershell
 npm start          # Browser mit dem normalen Profil starten (%APPDATA%\Caravel)
-npm run dist       # Installer bauen → dist\Caravel-Setup-3.0.0.exe (lädt Tor/wireproxy, erzeugt Symbole)
+npm run dist       # Installer bauen → dist\Caravel-Setup-<version>.exe (lädt Tor/wireproxy, erzeugt Symbole)
 node --check <datei>   # schnelle Syntaxprüfung (es gibt keine Testsuite)
 ```
 
@@ -41,7 +41,21 @@ PowerShell-Fenster ohne `GCM_INTERACTIVE`/`GIT_TERMINAL_PROMPT` laufen.
   Neuer-Tab-API (`caravelNTP`), Presentation-API-Nachbau für das Cast SDK
 - `src/ui/` – Oberfläche (`app.js` ist eine große Datei, gegliedert durch Kommentarblöcke), `styles.css`, `icons.js`
 - `src/pages/` – interne `caravel://`-Seiten (Neuer Tab, Fehler, Sperrseite)
+- `src/shared/i18n.js` – Übersetzungen Deutsch/Englisch (siehe unten); interne Seiten laden es als `shared/i18n.js`
 - `scripts/make-assets.js` – Logo/Symbole aus SVG; `scripts/fetch-vendor.js` – Tor und wireproxy
+
+## Sprachen (Deutsch/Englisch)
+
+- Einstellung `settings.language`: `'auto'` (Windows-Sprache), `'de'` oder `'en'`; wird beim Start festgelegt,
+  ein Wechsel wirkt nach dem Neustart (die Oberfläche bietet ihn an).
+- Der Quelltext bleibt deutsch, jeder sichtbare Text läuft durch die Übersetzung: in `app.js`, `newtab.js` und
+  `status.js` heißt die Funktion `T('…')` (dort ist `t` schon die Tab-Variable), im Hauptprozess `t('…')`.
+  Platzhalter: `T('{n} Tabs', { n })`. **Neue Texte immer auch in `EN` in `src/shared/i18n.js` eintragen.**
+- Zentral übersetzt (kein `T()` nötig, nur der Eintrag in `EN`): Menüeinträge (`label`, `hint`), Toasts,
+  `confirmDialog`, Befehle der Palette, `rowEl`-Aktionen. Tastennamen (Strg, Umschalt) übersetzt `T()` automatisch.
+- Statische HTML-Texte (`index.html`, interne Seiten) übersetzt `translateDom()` beim Laden, wenn der Text genau
+  einem Eintrag in `EN` entspricht.
+- Datum/Zahlen mit `I18N.locale` formatieren, nicht fest mit `'de-DE'`.
 
 ## Datenmodell (Auszug)
 

@@ -17,9 +17,12 @@ const { CastManager } = require('./cast')
 const { VpnManager } = require('./vpn')
 const { CrxCompat } = require('./crx-compat')
 const { McpServer } = require('./mcp-server')
+const i18n = require('../shared/i18n')
+const { t } = i18n
 
 const ROOT = path.join(__dirname, '..')
 const PAGES_DIR = path.join(ROOT, 'pages')
+const SHARED_DIR = path.join(ROOT, 'shared')
 const PRELOAD_DIR = path.join(ROOT, 'preload')
 const UI_PRELOAD = path.join(PRELOAD_DIR, 'ui-preload.js')
 const TAB_PRELOAD = path.join(PRELOAD_DIR, 'tab-preload.js')
@@ -136,9 +139,11 @@ function registerOdeProtocol (ses) {
   ses.protocol.handle('caravel', request => {
     const url = new URL(request.url)
     const rel = url.pathname === '/' || url.pathname === '' ? `${url.hostname}.html` : url.pathname.slice(1)
-    const file = path.normalize(path.join(PAGES_DIR, rel))
-    if (!file.startsWith(PAGES_DIR) || !fs.existsSync(file)) {
-      return new Response('Nicht gefunden', { status: 404 })
+    // caravel://<seite>/shared/… liefert gemeinsame Dateien (Übersetzungen)
+    const dir = rel.startsWith('shared/') ? SHARED_DIR : PAGES_DIR
+    const file = path.normalize(path.join(dir, rel.slice(dir === SHARED_DIR ? 7 : 0)))
+    if (!file.startsWith(dir) || !fs.existsSync(file)) {
+      return new Response(t('Nicht gefunden'), { status: 404 })
     }
     return net.fetch(pathToFileURL(file).href)
   })
@@ -232,83 +237,83 @@ function setupTab (wc) {
 }
 
 function showContextMenu (wc, params) {
-  const t = []
+  const items = []
   const action = (name, extra = {}) => () => send('ctx-action', { wcId: wc.id, action: name, ...extra })
-  const sep = () => { if (t.length && t[t.length - 1].type !== 'separator') t.push({ type: 'separator' }) }
+  const sep = () => { if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' }) }
   const ai = assistantName(store.get('settings'))
   const claude = ai && store.get('settings').claudeSidebar
 
   if (params.linkURL) {
-    t.push({ label: 'Link in neuem Tab öffnen', click: () => send('open-tab', { url: params.linkURL }) })
-    t.push({ label: 'Link im Hintergrund öffnen', click: () => send('open-tab', { url: params.linkURL, background: true }) })
-    t.push({ label: 'Peek – schwebende Vorschau', click: action('peek', { url: params.linkURL }) })
-    t.push({ label: 'In Split View öffnen', click: action('split', { url: params.linkURL }) })
-    t.push({ label: 'Link-Adresse kopieren', click: () => clipboard.writeText(params.linkURL) })
+    items.push({ label: t('Link in neuem Tab öffnen'), click: () => send('open-tab', { url: params.linkURL }) })
+    items.push({ label: t('Link im Hintergrund öffnen'), click: () => send('open-tab', { url: params.linkURL, background: true }) })
+    items.push({ label: t('Peek – schwebende Vorschau'), click: action('peek', { url: params.linkURL }) })
+    items.push({ label: t('In Split View öffnen'), click: action('split', { url: params.linkURL }) })
+    items.push({ label: t('Link-Adresse kopieren'), click: () => clipboard.writeText(params.linkURL) })
     sep()
   }
   if (params.mediaType === 'image' && params.srcURL) {
-    t.push({ label: 'Bild in neuem Tab öffnen', click: () => send('open-tab', { url: params.srcURL }) })
-    t.push({ label: 'Bild speichern', click: () => wc.downloadURL(params.srcURL) })
-    t.push({ label: 'Bild kopieren', click: () => wc.copyImageAt(params.x, params.y) })
-    t.push({ label: 'Bildadresse kopieren', click: () => clipboard.writeText(params.srcURL) })
+    items.push({ label: t('Bild in neuem Tab öffnen'), click: () => send('open-tab', { url: params.srcURL }) })
+    items.push({ label: t('Bild speichern'), click: () => wc.downloadURL(params.srcURL) })
+    items.push({ label: t('Bild kopieren'), click: () => wc.copyImageAt(params.x, params.y) })
+    items.push({ label: t('Bildadresse kopieren'), click: () => clipboard.writeText(params.srcURL) })
     sep()
   }
   if ((params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
     if (!params.srcURL.startsWith('blob:')) {
-      t.push({ label: 'Medium streamen …', click: action('cast', { url: params.srcURL }) })
+      items.push({ label: t('Medium streamen …'), click: action('cast', { url: params.srcURL }) })
     }
-    t.push({ label: 'Medienadresse kopieren', click: () => clipboard.writeText(params.srcURL) })
+    items.push({ label: t('Medienadresse kopieren'), click: () => clipboard.writeText(params.srcURL) })
     sep()
   }
   if (params.isEditable) {
     for (const s of params.dictionarySuggestions || []) {
-      t.push({ label: s, click: () => wc.replaceMisspelling(s) })
+      items.push({ label: s, click: () => wc.replaceMisspelling(s) })
     }
     if (params.misspelledWord) {
-      t.push({ label: 'Zum Wörterbuch hinzufügen', click: () => wc.session.addWordToSpellCheckerDictionary(params.misspelledWord) })
+      items.push({ label: t('Zum Wörterbuch hinzufügen'), click: () => wc.session.addWordToSpellCheckerDictionary(params.misspelledWord) })
       sep()
     }
-    t.push({ label: 'Rückgängig', role: 'undo' }, { label: 'Wiederholen', role: 'redo' }, { type: 'separator' })
-    t.push({ label: 'Ausschneiden', role: 'cut' }, { label: 'Kopieren', role: 'copy' }, { label: 'Einfügen', role: 'paste' })
-    t.push({ label: 'Alles auswählen', role: 'selectAll' })
+    items.push({ label: t('Rückgängig'), role: 'undo' }, { label: t('Wiederholen'), role: 'redo' }, { type: 'separator' })
+    items.push({ label: t('Ausschneiden'), role: 'cut' }, { label: t('Kopieren'), role: 'copy' }, { label: t('Einfügen'), role: 'paste' })
+    items.push({ label: t('Alles auswählen'), role: 'selectAll' })
     sep()
   } else if (params.selectionText) {
     const text = params.selectionText.trim()
     const short = text.length > 24 ? text.slice(0, 24) + '…' : text
-    t.push({ label: 'Kopieren', role: 'copy' })
+    items.push({ label: t('Kopieren'), role: 'copy' })
     if (claude) {
-      t.push({ label: `${ai} fragen …`, click: action('claude-selection', { text }) })
-      t.push({ label: `Mit ${ai} erklären`, click: action('claude-selection', { text, prompt: 'explain' }) })
-      t.push({ label: `Mit ${ai} übersetzen`, click: action('claude-selection', { text, prompt: 'translate' }) })
+      items.push({ label: t('{ai} fragen …', { ai }), click: action('claude-selection', { text }) })
+      items.push({ label: t('Mit {ai} erklären', { ai }), click: action('claude-selection', { text, prompt: 'explain' }) })
+      items.push({ label: t('Mit {ai} übersetzen', { ai }), click: action('claude-selection', { text, prompt: 'translate' }) })
     }
-    t.push({ label: `Im Web nach „${short}“ suchen`, click: () => send('open-tab', { url: searchUrl(text) }) })
-    t.push({ label: 'Als Notiz zu dieser Seite speichern', click: action('note', { text }) })
+    items.push({ label: t('Im Web nach „{q}“ suchen', { q: short }), click: () => send('open-tab', { url: searchUrl(text) }) })
+    items.push({ label: t('Als Notiz zu dieser Seite speichern'), click: action('note', { text }) })
     sep()
   }
   if (!params.linkURL && !params.isEditable && !params.selectionText && params.mediaType === 'none') {
-    t.push({ label: 'Zurück', enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() })
-    t.push({ label: 'Vorwärts', enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() })
-    t.push({ label: 'Neu laden', click: () => wc.reload() })
+    items.push({ label: t('Zurück'), enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() })
+    items.push({ label: t('Vorwärts'), enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() })
+    items.push({ label: t('Neu laden'), click: () => wc.reload() })
     sep()
     if (claude) {
-      t.push({ label: `Seite mit ${ai} zusammenfassen`, click: action('claude-page', { prompt: 'summarize' }) })
-      t.push({ label: `Seite an ${ai} übergeben`, click: action('claude-page', { prompt: 'context' }) })
+      items.push({ label: t('Seite mit {ai} zusammenfassen', { ai }), click: action('claude-page', { prompt: 'summarize' }) })
+      items.push({ label: t('Seite an {ai} übergeben', { ai }), click: action('claude-page', { prompt: 'context' }) })
     }
-    t.push({ label: 'Seite als Markdown kopieren', click: action('markdown') })
-    t.push({ label: 'Leser-Modus', click: action('reader') })
-    t.push({ label: 'Screenshot aufnehmen', click: action('screenshot') })
-    t.push({ label: 'Streamen …', click: action('cast') })
-    t.push({ label: 'Seitenquelltext anzeigen', click: () => send('open-tab', { url: 'view-source:' + wc.getURL() }) })
+    items.push({ label: t('Seite als Markdown kopieren'), click: action('markdown') })
+    items.push({ label: t('Leser-Modus'), click: action('reader') })
+    items.push({ label: t('Screenshot aufnehmen'), click: action('screenshot') })
+    items.push({ label: t('Streamen …'), click: action('cast') })
+    items.push({ label: t('Seitenquelltext anzeigen'), click: () => send('open-tab', { url: 'view-source:' + wc.getURL() }) })
     sep()
   }
 
   try {
     const extItems = extensions.getContextMenuItems(wc, params)
-    if (extItems.length) { sep(); t.push(...extItems); sep() }
+    if (extItems.length) { sep(); items.push(...extItems); sep() }
   } catch {}
 
-  t.push({ label: 'Untersuchen', click: () => { wc.inspectElement(params.x, params.y) } })
-  Menu.buildFromTemplate(t).popup({ window: win })
+  items.push({ label: t('Untersuchen'), click: () => { wc.inspectElement(params.x, params.y) } })
+  Menu.buildFromTemplate(items).popup({ window: win })
 }
 
 // ---------------------------------------------------------------------------
@@ -492,12 +497,12 @@ async function setupExtensions () {
     async beforeInstall (details) {
       const res = await dialog.showMessageBox(win, {
         type: 'question',
-        buttons: ['Hinzufügen', 'Abbrechen'],
+        buttons: [t('Hinzufügen'), t('Abbrechen')],
         defaultId: 0,
         cancelId: 1,
-        title: 'Erweiterung hinzufügen',
-        message: `„${details.localizedName}“ zu Caravel hinzufügen?`,
-        detail: 'Die Erweiterung wird aus dem Chrome Web Store installiert und kann auf Websites zugreifen, die du besuchst.',
+        title: t('Erweiterung hinzufügen'),
+        message: t('„{name}“ zu Caravel hinzufügen?', { name: details.localizedName }),
+        detail: t('Die Erweiterung wird aus dem Chrome Web Store installiert und kann auf Websites zugreifen, die du besuchst.'),
         icon: details.icon
       })
       return { action: res.response === 0 ? 'allow' : 'deny' }
@@ -588,9 +593,9 @@ function vpnConfigFromSettings () {
   const s = store.get('settings')
   if (s.vpnMode === 'server') {
     const server = s.vpnServers.find(x => x.id === s.vpnServerId) || s.vpnServers[0]
-    return { mode: 'server', server, label: server?.name || 'Eigener Server' }
+    return { mode: 'server', server, label: server?.name || t('Eigener Server') }
   }
-  const name = Object.fromEntries(VpnManager.countries())[s.vpnCountry] || 'Automatisch'
+  const name = Object.fromEntries(VpnManager.countries())[s.vpnCountry] || t('Automatisch')
   return { mode: 'tor', country: s.vpnCountry, label: `Tor · ${name}` }
 }
 
@@ -599,6 +604,9 @@ function vpnConfigFromSettings () {
 
 function registerIpc () {
   ipcMain.handle('store:all', () => store.data)
+  ipcMain.handle('app:lang', () => i18n.lang)
+  // Interne Seiten (Preload) brauchen die Sprache synchron, damit nichts erst deutsch aufblitzt
+  ipcMain.on('app:lang-sync', e => { e.returnValue = i18n.lang })
   ipcMain.on('store:set', (_e, key, value) => {
     // Das MCP-Zugangstoken wird im Hauptprozess erzeugt – nicht durch einen älteren UI-Stand überschreiben
     if (key === 'settings' && value && !value.claudeMcpToken && store.get('settings').claudeMcpToken) {
@@ -649,7 +657,7 @@ function registerIpc () {
 
   ipcMain.handle('suggest', async (_e, query) => {
     try {
-      const res = await tabsSession.fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}&kl=de-de`)
+      const res = await tabsSession.fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}&kl=${i18n.lang === 'en' ? 'us-en' : 'de-de'}`)
       const json = await res.json()
       return json.map(x => x.phrase).slice(0, 5)
     } catch { return [] }
@@ -683,7 +691,7 @@ function registerIpc () {
     }
   })
   ipcMain.handle('ext:load-unpacked', async () => {
-    const res = await dialog.showOpenDialog(win, { title: 'Entpackte Erweiterung laden', properties: ['openDirectory'] })
+    const res = await dialog.showOpenDialog(win, { title: t('Entpackte Erweiterung laden'), properties: ['openDirectory'] })
     if (res.canceled || !res.filePaths[0]) return null
     const dir = res.filePaths[0]
     const ext = await tabsSession.extensions.loadExtension(dir, { allowFileAccess: true })
@@ -749,7 +757,7 @@ function registerIpc () {
   })
   ipcMain.handle('vpn:import-wireguard', async () => {
     const res = await dialog.showOpenDialog(win, {
-      title: 'WireGuard-Konfiguration importieren',
+      title: t('WireGuard-Konfiguration importieren'),
       properties: ['openFile', 'multiSelections'],
       filters: [{ name: 'WireGuard', extensions: ['conf'] }]
     })
@@ -793,7 +801,7 @@ function registerIpc () {
   ipcMain.handle('cast:start-app', (_e, deviceId, wcId) => result((async () => {
     const wc = webContents.fromId(wcId)
     const page = cast.pageApp(wcId)
-    if (!wc || !page) throw new Error('Die Seite bietet keine Cast-App an.')
+    if (!wc || !page) throw new Error(t('Die Seite bietet keine Cast-App an.'))
     const conn = await cast.startApp(deviceId, page.appIds, wc, page.origin)
     wc.send('castp:event', { type: 'connectionavailable', ...conn })
   })()))
@@ -810,12 +818,12 @@ function registerIpc () {
   const originOf = wc => { try { return new URL(wc.getURL()).origin } catch { return '' } }
   ipcMain.handle('castp:start', async (e, urls) => {
     const appIds = CastManager.appIdsFromUrls(urls)
-    if (!appIds.length) return { error: 'NotSupportedError', message: 'Nur Cast-Apps werden unterstützt.' }
+    if (!appIds.length) return { error: 'NotSupportedError', message: t('Nur Cast-Apps werden unterstützt.') }
     let deviceId = null
     try {
       deviceId = await uiRequest('cast:pick', { wcId: e.sender.id, appIds, origin: originOf(e.sender) }, 300000)
     } catch {}
-    if (!deviceId) return { error: 'AbortError', message: 'Abgebrochen' }
+    if (!deviceId) return { error: 'AbortError', message: t('Abgebrochen') }
     try {
       return await cast.startApp(deviceId, appIds, e.sender, originOf(e.sender))
     } catch (err) {
@@ -834,9 +842,9 @@ function registerIpc () {
   ipcMain.on('castp:terminate', (_e, connId) => cast.pageTerminate(connId))
   ipcMain.handle('cast:pick-file', async () => {
     const res = await dialog.showOpenDialog(win, {
-      title: 'Datei zum Streamen auswählen',
+      title: t('Datei zum Streamen auswählen'),
       properties: ['openFile'],
-      filters: [{ name: 'Medien', extensions: ['mp4', 'm4v', 'webm', 'mkv', 'mov', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'wav', 'jpg', 'jpeg', 'png', 'gif', 'webp'] }]
+      filters: [{ name: t('Medien'), extensions: ['mp4', 'm4v', 'webm', 'mkv', 'mov', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'wav', 'jpg', 'jpeg', 'png', 'gif', 'webp'] }]
     })
     return res.canceled ? null : res.filePaths[0]
   })
@@ -887,6 +895,7 @@ function registerIpc () {
     const topSites = [...counts.values()].sort((a, b) => b.n - a.n).slice(0, 8)
     const s = store.get('settings')
     return {
+      lang: i18n.lang,
       userName: s.userName,
       searchEngine: s.searchEngine,
       accent: uiAccent,
@@ -999,7 +1008,7 @@ function syncMcp (s) {
   mcp.start(+s.claudeMcpPort || 47823, token)
     .then(() => { mcpError = null })
     .catch(err => {
-      mcpError = err.code === 'EADDRINUSE' ? `Port ${s.claudeMcpPort} ist bereits belegt.` : err.message
+      mcpError = err.code === 'EADDRINUSE' ? t('Port {port} ist bereits belegt.', { port: s.claudeMcpPort }) : err.message
       mcp.stop()
     })
 }
@@ -1044,15 +1053,20 @@ app.on('login', (event, _wc, _details, authInfo, callback) => {
 
 app.whenReady().then(async () => {
   store = new Store(app.getPath('userData'))
+  i18n.setLang(i18n.resolve(store.get('settings').language, app.getPreferredSystemLanguages()[0] || app.getLocale()))
+  // Neue Installation: Namen der Standard-Spaces in der Sprache der Oberfläche
+  if (store.fresh) store.set('spaces', store.get('spaces').map(sp => ({ ...sp, name: t(sp.name) })))
   tabsSession = session.fromPartition(PARTITION)
 
   const ua = cleanUserAgent(tabsSession.getUserAgent())
-  tabsSession.setUserAgent(ua)
+  // Bevorzugte Sprachen für Websites (Accept-Language) passend zur Oberfläche
+  tabsSession.setUserAgent(ua, i18n.lang === 'en' ? 'en-US,en;q=0.9' : 'de-DE,de;q=0.9,en;q=0.8')
   app.userAgentFallback = ua
 
   try {
     const langs = tabsSession.availableSpellCheckerLanguages
-    tabsSession.setSpellCheckerLanguages(['de-DE', 'de', 'en-US'].filter(l => langs.includes(l)).slice(0, 2))
+    const prefer = i18n.lang === 'en' ? ['en-US', 'de-DE', 'de'] : ['de-DE', 'de', 'en-US']
+    tabsSession.setSpellCheckerLanguages(prefer.filter(l => langs.includes(l)).slice(0, 2))
   } catch {}
 
   registerOdeProtocol(tabsSession)

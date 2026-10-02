@@ -10,6 +10,7 @@ const { spawn } = require('node:child_process')
 const net = require('node:net')
 const fs = require('node:fs')
 const path = require('node:path')
+const { t } = require('../shared/i18n')
 
 const TOR_COUNTRIES = [
   ['auto', 'Automatisch (schnellste Route)'], ['de', 'Deutschland'], ['nl', 'Niederlande'], ['ch', 'Schweiz'],
@@ -38,7 +39,7 @@ function waitForPort (port, timeout = 15000) {
       sock.once('connect', () => { sock.destroy(); resolve() })
       sock.once('error', () => {
         sock.destroy()
-        if (Date.now() > until) reject(new Error('Der Tunnel antwortet nicht.'))
+        if (Date.now() > until) reject(new Error(t('Der Tunnel antwortet nicht.')))
         else setTimeout(attempt, 250)
       })
     }
@@ -139,7 +140,7 @@ class VpnManager extends EventEmitter {
     this.webContents = new Set()
   }
 
-  static countries () { return TOR_COUNTRIES }
+  static countries () { return TOR_COUNTRIES.map(([code, name]) => [code, t(name)]) }
 
   set (patch) {
     Object.assign(this.state, patch)
@@ -171,7 +172,7 @@ class VpnManager extends EventEmitter {
       this.applyWebRtc(true)
       // Erst melden, wenn tatsächlich Verkehr durch den Tunnel geht
       await this.checkIp()
-      if (!this.state.ip) throw new Error('Über diesen Server kommt keine Verbindung zustande. Zugangsdaten bzw. Konfiguration prüfen.')
+      if (!this.state.ip) throw new Error(t('Über diesen Server kommt keine Verbindung zustande. Zugangsdaten bzw. Konfiguration prüfen.'))
       this.set({ status: 'on', progress: 100 })
     } catch (err) {
       await this.disconnect({ silent: true })
@@ -195,7 +196,7 @@ class VpnManager extends EventEmitter {
 
   async startTor (country) {
     const exe = path.join(this.vendorDir, 'tor', 'tor', 'tor.exe')
-    if (!fs.existsSync(exe)) throw new Error('Tor ist in dieser Installation nicht enthalten.')
+    if (!fs.existsSync(exe)) throw new Error(t('Tor ist in dieser Installation nicht enthalten.'))
     const socksPort = await freePort()
     const controlPort = await freePort()
     const dataDir = path.join(this.dataDir, 'tor')
@@ -216,7 +217,7 @@ class VpnManager extends EventEmitter {
     this.proc = proc
     await new Promise((resolve, reject) => {
       // Der allererste Start lädt das Relay-Verzeichnis und kann einige Minuten dauern
-      const timer = setTimeout(() => reject(new Error('Tor konnte sich nicht rechtzeitig verbinden. Ist das Netzwerk blockiert?')), 180000)
+      const timer = setTimeout(() => reject(new Error(t('Tor konnte sich nicht rechtzeitig verbinden. Ist das Netzwerk blockiert?'))), 180000)
       let out = ''
       proc.stdout.on('data', chunk => {
         out += chunk.toString()
@@ -230,19 +231,19 @@ class VpnManager extends EventEmitter {
           if (/\[err\]/.test(line)) { clearTimeout(timer); reject(new Error(line.split('[err]')[1].trim())) }
         }
       })
-      proc.once('exit', code => { clearTimeout(timer); reject(new Error(`Tor wurde beendet (Code ${code}).`)) })
+      proc.once('exit', code => { clearTimeout(timer); reject(new Error(t('Tor wurde beendet (Code {code}).', { code }))) })
       proc.once('error', err => { clearTimeout(timer); reject(err) })
     })
     const cookie = fs.readFileSync(path.join(dataDir, 'control_auth_cookie')).toString('hex')
     this.tor = { socksPort, controlPort, cookie }
     proc.once('exit', () => {
-      if (this.proc === proc) { this.proc = null; this.set({ status: 'error', error: 'Tor wurde unerwartet beendet.' }) }
+      if (this.proc === proc) { this.proc = null; this.set({ status: 'error', error: t('Tor wurde unerwartet beendet.') }) }
     })
     return `socks5://127.0.0.1:${socksPort}`
   }
 
   torCommand (commands) {
-    if (!this.tor) return Promise.reject(new Error('Tor läuft nicht'))
+    if (!this.tor) return Promise.reject(new Error(t('Tor läuft nicht')))
     return new Promise((resolve, reject) => {
       const sock = net.connect(this.tor.controlPort, '127.0.0.1')
       let data = ''
@@ -280,30 +281,30 @@ class VpnManager extends EventEmitter {
   // --- Eigene Server --------------------------------------------------------
 
   async startServer (server) {
-    if (!server) throw new Error('Kein Server ausgewählt.')
+    if (!server) throw new Error(t('Kein Server ausgewählt.'))
     const host = (server.host || '').trim()
     const port = +server.port
     switch (server.type) {
       case 'http':
       case 'https':
-        if (!host || !port) throw new Error('Adresse oder Port fehlt.')
+        if (!host || !port) throw new Error(t('Adresse oder Port fehlt.'))
         return `${server.type}://${host}:${port}`
       case 'socks5':
-        if (!host || !port) throw new Error('Adresse oder Port fehlt.')
+        if (!host || !port) throw new Error(t('Adresse oder Port fehlt.'))
         if (!server.user) return `socks5://${host}:${port}`
         this.bridge = await startSocksAuthBridge({ host, port, user: server.user, pass: server.pass })
         return `socks5://127.0.0.1:${this.bridge.address().port}`
       case 'wireguard':
         return this.startWireGuard(server.config)
       default:
-        throw new Error('Unbekannter Servertyp.')
+        throw new Error(t('Unbekannter Servertyp.'))
     }
   }
 
   async startWireGuard (config) {
     const exe = path.join(this.vendorDir, 'wireproxy', 'wireproxy.exe')
-    if (!fs.existsSync(exe)) throw new Error('WireGuard-Unterstützung ist in dieser Installation nicht enthalten.')
-    if (!/\[Interface\]/i.test(config || '') || !/\[Peer\]/i.test(config || '')) throw new Error('Das ist keine gültige WireGuard-Konfiguration.')
+    if (!fs.existsSync(exe)) throw new Error(t('WireGuard-Unterstützung ist in dieser Installation nicht enthalten.'))
+    if (!/\[Interface\]/i.test(config || '') || !/\[Peer\]/i.test(config || '')) throw new Error(t('Das ist keine gültige WireGuard-Konfiguration.'))
     const port = await freePort()
     const dir = path.join(this.dataDir, 'wireguard')
     fs.mkdirSync(dir, { recursive: true })
@@ -316,10 +317,10 @@ class VpnManager extends EventEmitter {
     let log = ''
     proc.stdout.on('data', d => { log += d })
     proc.stderr.on('data', d => { log += d })
-    const exited = new Promise((_, reject) => proc.once('exit', code => reject(new Error(`WireGuard-Tunnel beendet (Code ${code}). ${log.trim().split('\n').pop() || ''}`))))
+    const exited = new Promise((_, reject) => proc.once('exit', code => reject(new Error(`${t('WireGuard-Tunnel beendet (Code {code}).', { code })} ${log.trim().split('\n').pop() || ''}`))))
     await Promise.race([waitForPort(port), exited])
     proc.once('exit', () => {
-      if (this.proc === proc) { this.proc = null; this.set({ status: 'error', error: 'Der WireGuard-Tunnel wurde beendet.' }) }
+      if (this.proc === proc) { this.proc = null; this.set({ status: 'error', error: t('Der WireGuard-Tunnel wurde beendet.') }) }
     })
     return `socks5://127.0.0.1:${port}`
   }
@@ -344,7 +345,7 @@ class VpnManager extends EventEmitter {
         if (info.ip) { this.set(info); return }
       } catch {}
     }
-    if (this.state.status === 'on') this.set({ error: 'Verbunden, aber die öffentliche IP ließ sich nicht prüfen.' })
+    if (this.state.status === 'on') this.set({ error: t('Verbunden, aber die öffentliche IP ließ sich nicht prüfen.') })
   }
 
   dispose () {

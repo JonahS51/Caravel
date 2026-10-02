@@ -123,20 +123,20 @@
 .tiles.small .ico img { width: 20px; height: 20px; }
 
 /* Dialog zum Hinzufügen/Bearbeiten */
-.edit {
+.editor {
   width: min(400px, 92vw); padding: 22px; border-radius: 20px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text);
   box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .6);
 }
-.edit::backdrop { background: rgba(5, 8, 20, .45); backdrop-filter: blur(4px); }
-.edit h3 { margin: 0 0 16px; font: 650 17px var(--display); }
-.edit label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 12px; font-weight: 600; color: var(--text-2); }
-.edit input {
+.editor::backdrop { background: rgba(5, 8, 20, .45); backdrop-filter: blur(4px); }
+.editor h3 { margin: 0 0 16px; font: 650 17px var(--display); }
+.editor label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.editor input {
   height: 38px; padding: 0 12px; border-radius: 11px; border: 1px solid var(--border);
   background: var(--glass); color: var(--text); font: 14px var(--font); outline: 0;
 }
-.edit input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
-.edit .err { min-height: 16px; margin: 0 0 6px; font-size: 12px; color: #f87171; }
+.editor input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.editor .err { min-height: 16px; margin: 0 0 6px; font-size: 12px; color: #f87171; }
 .edit-foot { display: flex; align-items: center; gap: 8px; }
 .edit-foot .grow { flex: 1; }
 .b {

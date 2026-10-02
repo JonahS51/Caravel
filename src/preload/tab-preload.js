@@ -19,6 +19,7 @@ if (/^https?:/.test(location.protocol)) {
 
 if (isInternal) {
   contextBridge.exposeInMainWorld('caravelNTP', {
+    lang: (() => { try { return ipcRenderer.sendSync('app:lang-sync') } catch { return 'de' } })(),
     getData: () => ipcRenderer.invoke('ntp:data'),
     bookmark: (op, data) => ipcRenderer.invoke('ntp:bookmark', op, data),
     onChanged: cb => { ipcRenderer.on('ntp:changed', () => cb()) }
