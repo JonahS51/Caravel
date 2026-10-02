@@ -30,7 +30,7 @@ const S = {
   panel: null,
   downloads: new Map(),
   focus: { active: false, endsAt: 0, total: 0, timer: null },
-  cast: { devices: [], status: null, selected: null, preset: null, media: null },
+  cast: { devices: [], sessions: [], source: 'tab', request: null, page: null, preset: null, media: null, file: null, mirror: null },
   adblockTotal: 0,
   adblockBase: 0,
   vpn: null,
@@ -319,6 +319,7 @@ function bindWebview (tab, wv) {
   wv.addEventListener('page-favicon-updated', e => {
     tab.favicon = e.favicons?.[0] || null
     updateTabEl(tab)
+    refreshBookmarkFavicon(tab)
     saveSession()
   })
   wv.addEventListener('did-fail-load', e => {
@@ -699,31 +700,185 @@ function initDivider () {
    Seitenleiste rendern
    --------------------------------------------------------------------- */
 
+// Favoriten: in der Seitenleiste als Symbolraster, bei Chrome/Safari als Favoritenleiste wie in Chrome –
+// mit Ordnern, Überlauf-Menü (»), Drag & Drop und Bearbeiten per Rechtsklick.
 function renderFavorites () {
   const box = $('#favorites')
   box.innerHTML = ''
   const cur = activeTab()
-  for (const bm of S.data.bookmarks.slice(0, 8)) {
-    const el = document.createElement('div')
-    el.className = 'fav'
-    el.title = bm.title
+  for (const bm of S.data.bookmarks) box.append(favItem(bm, cur))
+  box.hidden = !S.data.bookmarks.length && !isHorizontalTabs()
+  $('#fav-empty').hidden = S.data.bookmarks.length > 0
+  layoutFavbar()
+}
+
+function favItem (bm, cur) {
+  const folder = isFolder(bm)
+  const el = document.createElement('div')
+  el.className = 'fav' + (folder ? ' folder' : '')
+  el.dataset.id = bm.id
+  el.title = folder ? `${bm.title} (${bm.children.length})` : `${bm.title}\n${bm.url}`
+  el.draggable = true
+  if (folder) {
+    const ic = document.createElement('span')
+    ic.className = 'fav-folder'
+    ic.innerHTML = icon('folder')
+    el.append(ic)
+  } else {
     if (cur && hostOf(cur.url) === hostOf(bm.url)) el.classList.add('active')
     el.append(faviconEl(bm.favicon, bm.url, 20))
-    const label = document.createElement('span')
-    label.className = 'fav-label' // nur in der Favoritenleiste (Chrome/Safari) sichtbar
-    label.textContent = bm.title || hostOf(bm.url)
-    el.append(label)
-    el.onclick = () => openBookmark(bm)
-    el.oncontextmenu = e => showMenu(e.clientX, e.clientY, [
-      { label: 'In neuem Tab öffnen', icon: 'plus', run: () => createTab({ url: bm.url }) },
-      { label: 'Peek-Vorschau', icon: 'eye', run: () => openPeek(bm.url) },
-      { label: 'In Split View öffnen', icon: 'split', run: () => openInSplit(bm.url) },
-      '-',
-      { label: 'Aus Favoriten entfernen', icon: 'trash', danger: true, run: () => removeBookmark(bm.url) }
-    ])
-    box.append(el)
   }
-  box.hidden = S.data.bookmarks.length === 0
+  const label = document.createElement('span')
+  label.className = 'fav-label' // nur in der Favoritenleiste (Chrome/Safari) sichtbar
+  label.textContent = bm.title || hostOf(bm.url)
+  el.append(label)
+  el.onclick = e => {
+    if (folder) return openFolderMenu(bm, el)
+    if (e.ctrlKey || e.metaKey) return createTab({ url: bm.url, background: true })
+    if (e.shiftKey) return createTab({ url: bm.url })
+    openBookmark(bm)
+  }
+  el.onauxclick = e => {
+    if (e.button !== 1 || folder) return
+    e.preventDefault()
+    createTab({ url: bm.url, background: true })
+  }
+  el.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); favContextMenu(bm, e) }
+  el.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/caravel-bm', bm.id)
+    e.dataTransfer.effectAllowed = 'move'
+  })
+  el.addEventListener('dragover', e => {
+    const types = e.dataTransfer.types
+    if (!types.includes('text/caravel-bm') && !types.includes('text/caravel-tab')) return
+    e.preventDefault()
+    e.stopPropagation()
+    clearFavDrop()
+    el.classList.add('drop-' + favDropWhere(el, e))
+  })
+  el.addEventListener('dragleave', () => el.classList.remove('drop-before', 'drop-after', 'drop-into'))
+  el.addEventListener('drop', e => {
+    e.preventDefault()
+    e.stopPropagation()
+    const where = favDropWhere(el, e)
+    clearFavDrop()
+    favDrop(e, bm.id, where)
+  })
+  return el
+}
+
+// Vor/hinter ein Element oder (bei Ordnern, mittlere Hälfte) hinein
+function favDropWhere (el, e) {
+  const r = el.getBoundingClientRect()
+  const x = (e.clientX - r.left) / r.width
+  if (el.classList.contains('folder') && x > 0.25 && x < 0.75) return 'into'
+  return x < 0.5 ? 'before' : 'after'
+}
+
+function clearFavDrop () {
+  for (const x of $$('.fav.drop-before, .fav.drop-after, .fav.drop-into')) x.classList.remove('drop-before', 'drop-after', 'drop-into')
+}
+
+function favDrop (e, targetId, where) {
+  const bmId = e.dataTransfer.getData('text/caravel-bm')
+  const tab = getTab(e.dataTransfer.getData('text/caravel-tab'))
+  if (bmId) return moveBookmark(bmId, targetId, where)
+  if (tab && !isNewtab(tab.url)) {
+    const bm = bmByUrl(tab.url) || addBookmark({ url: tab.url, title: tab.title, favicon: tab.favicon })
+    moveBookmark(bm.id, targetId, where)
+    toast('Zu Favoriten hinzugefügt', tab.title, 'star')
+  }
+}
+
+function initFavorites () {
+  // Freie Fläche: ans Ende verschieben bzw. Tab ans Ende anheften; Rechtsklick: Hinzufügen-Menü
+  for (const zone of [$('#favorites'), $('#favbar')]) {
+    zone.addEventListener('dragover', e => {
+      const types = e.dataTransfer.types
+      if (types.includes('text/caravel-bm') || types.includes('text/caravel-tab')) e.preventDefault()
+    })
+    zone.addEventListener('drop', e => {
+      if (e.target.closest('.fav')) return
+      e.preventDefault()
+      e.stopPropagation()
+      favDrop(e, null, 'after')
+    })
+    zone.addEventListener('contextmenu', e => {
+      if (e.target.closest('.fav')) return
+      e.preventDefault()
+      showMenu(e.clientX, e.clientY, favBarMenuItems())
+    })
+  }
+  new ResizeObserver(() => layoutFavbar()).observe($('#favbar'))
+}
+
+function favBarMenuItems () {
+  const t = activeTab()
+  return [
+    { label: 'Aktuelle Seite hinzufügen', icon: 'star', hidden: !t || isNewtab(t.url) || !!bmByUrl(t.url), run: () => { addBookmark({ url: t.url, title: t.title, favicon: t.favicon }); toast('Zu Favoriten hinzugefügt', t.title, 'star') } },
+    { label: 'Favorit hinzufügen …', icon: 'plus', run: () => editBookmarkDialog(null, { kind: 'link' }) },
+    { label: 'Ordner hinzufügen …', icon: 'folder', run: () => editBookmarkDialog(null, { kind: 'folder' }) },
+    '-',
+    isHorizontalTabs()
+      ? { label: 'Favoritenleiste ausblenden', icon: 'eye', hint: 'Strg+B', run: toggleSidebar }
+      : { label: 'Favoriten-Ansicht: Tab-Leiste ändern …', icon: 'layers', run: () => openSettings('appearance') }
+  ]
+}
+
+function favContextMenu (bm, e) {
+  if (isFolder(bm)) {
+    return showMenu(e.clientX, e.clientY, [
+      { label: 'Alle in neuen Tabs öffnen', icon: 'plus', hidden: !bm.children.length, run: () => bm.children.forEach(c => createTab({ url: c.url, background: true })) },
+      { label: 'Umbenennen …', icon: 'type', run: () => editBookmarkDialog(bm) },
+      '-',
+      ...favBarMenuItems(),
+      '-',
+      { label: 'Ordner löschen', icon: 'trash', danger: true, run: () => removeBookmarkId(bm.id) }
+    ])
+  }
+  showMenu(e.clientX, e.clientY, [
+    { label: 'In neuem Tab öffnen', icon: 'plus', run: () => createTab({ url: bm.url }) },
+    { label: 'Peek-Vorschau', icon: 'eye', run: () => openPeek(bm.url) },
+    { label: 'In Split View öffnen', icon: 'split', run: () => openInSplit(bm.url) },
+    '-',
+    { label: 'Bearbeiten …', icon: 'type', run: () => editBookmarkDialog(bm) },
+    { label: 'Adresse kopieren', icon: 'copy', run: () => A.send('clipboard:write', bm.url) },
+    { label: 'Entfernen', icon: 'trash', danger: true, run: () => removeBookmarkId(bm.id) },
+    '-',
+    ...favBarMenuItems()
+  ])
+}
+
+function openFolderMenu (folder, anchor) {
+  const r = anchor.getBoundingClientRect()
+  const items = folder.children.map(c => ({ label: c.title || hostOf(c.url), fav: c, run: () => openBookmark(c) }))
+  if (!items.length) items.push({ label: 'Leer – Favoriten hierher ziehen', icon: 'info', run: () => {} })
+  else items.push('-', { label: 'Alle in neuen Tabs öffnen', icon: 'plus', run: () => folder.children.forEach(c => createTab({ url: c.url, background: true })) })
+  showMenu(r.left, r.bottom + 4, items)
+}
+
+// Favoritenleiste: was nicht mehr passt, wandert ins »-Menü (wie in Chrome)
+function layoutFavbar () {
+  const bar = $('#favbar')
+  const more = $('#fav-more')
+  const items = [...$('#favorites').children]
+  for (const el of items) el.classList.remove('overflow')
+  if (!isHorizontalTabs() || bar.hidden) { more.hidden = true; return }
+  const limit = bar.getBoundingClientRect().right - 44
+  const hidden = items.filter(el => el.getBoundingClientRect().right > limit)
+  for (const el of hidden) el.classList.add('overflow')
+  more.hidden = !hidden.length
+  more.innerHTML = icon('chevronDown')
+  more.onclick = () => {
+    const r = more.getBoundingClientRect()
+    showMenu(r.right - 240, r.bottom + 4, hidden.map(el => {
+      const bm = bmLocate(el.dataset.id)?.item
+      if (!bm) return null
+      return isFolder(bm)
+        ? { label: bm.title, icon: 'folder', run: () => openFolderMenu(bm, more) }
+        : { label: bm.title || hostOf(bm.url), fav: bm, run: () => openBookmark(bm) }
+    }))
+  }
 }
 
 function openBookmark (bm) {
@@ -945,7 +1100,7 @@ function applyTabLayout () {
   if (horiz) {
     $('#ts-tabs').append(list, newtab)
     $('#ts-spaces').append(spaces)
-    favbar.append(favs)
+    favbar.prepend(favs)
     // Chrome: Tabs ganz oben, Safari: Tabs unter Adress- und Favoritenleiste
     if (mode === 'chrome') main.prepend(strip)
     else main.insertBefore(strip, $('.content-row'))
@@ -961,6 +1116,7 @@ function applyTabLayout () {
   strip.hidden = !horiz
   favbar.hidden = !horiz || settings().showFavbar === false
   updateAmbient() // Höhe der Fensterknöpfe an die Leistenhöhe anpassen
+  renderFavorites()
   if (changed) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       $('#app').style.transition = ''
@@ -997,7 +1153,7 @@ function updateNav () {
   $('#btn-reload').innerHTML = icon(t?.loading ? 'x' : 'reload')
   $('#btn-reload').title = t?.loading ? 'Laden abbrechen' : 'Neu laden (F5)'
   updateAdblockChip()
-  const bm = t && S.data.bookmarks.some(b => b.url === t.url)
+  const bm = t && !!bmByUrl(t.url)
   $('#btn-star').classList.toggle('on', !!bm)
   $('#btn-star').innerHTML = icon('star')
   $('#btn-reader').classList.toggle('on', !!S.reader)
@@ -1122,7 +1278,7 @@ function initOmnibox () {
         seen.add(t.url)
       }
     }
-    for (const b of S.data.bookmarks) {
+    for (const b of bmFlat()) {
       if (items.length > 5) break
       if (seen.has(b.url)) continue
       if ((b.title + ' ' + b.url).toLowerCase().includes(ql)) {
@@ -1190,27 +1346,231 @@ function focusOmnibox () {
    Lesezeichen
    --------------------------------------------------------------------- */
 
-function toggleBookmark () {
-  const t = activeTab()
-  if (!t || isNewtab(t.url)) return
-  const i = S.data.bookmarks.findIndex(b => b.url === t.url)
-  if (i >= 0) {
-    S.data.bookmarks.splice(i, 1)
-    toast('Lesezeichen entfernt', t.title, 'star')
-  } else {
-    S.data.bookmarks.unshift({ id: 'bm-' + Date.now(), url: t.url, title: t.title, favicon: t.favicon })
-    toast('Zu Favoriten hinzugefügt', 'Erscheint oben in der Seitenleiste und auf der Startseite.', 'star')
+// Datenmodell: S.data.bookmarks ist die Favoritenleiste; Einträge sind Links { id, url, title, favicon }
+// oder Ordner { id, folder: true, title, children: [Links] } (eine Ebene, wie meist genutzt in Chrome).
+const isFolder = b => !!b?.folder
+
+function bmFlat () {
+  const out = []
+  for (const b of S.data.bookmarks) {
+    if (isFolder(b)) out.push(...b.children)
+    else out.push(b)
   }
-  save('bookmarks')
+  return out
+}
+
+function bmLocate (id) {
+  for (const [i, b] of S.data.bookmarks.entries()) {
+    if (b.id === id) return { item: b, list: S.data.bookmarks, index: i, parent: null }
+    if (isFolder(b)) {
+      const j = b.children.findIndex(c => c.id === id)
+      if (j >= 0) return { item: b.children[j], list: b.children, index: j, parent: b }
+    }
+  }
+  return null
+}
+
+const bmByUrl = url => bmFlat().find(b => b.url === url)
+const bmNewId = () => 'bm-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+
+function saveBookmarks () {
+  clearTimeout(saveTimers.bookmarks)
+  A.send('store:set', 'bookmarks', S.data.bookmarks) // sofort, damit offene Neuer-Tab-Seiten aktuell bleiben
   renderFavorites()
   updateNav()
 }
 
+function normalizeBookmarkUrl (s) {
+  s = String(s || '').trim()
+  if (!s) return ''
+  if (!/^[a-z][\w+.-]*:/i.test(s)) s = 'https://' + s
+  try { return new URL(s).href } catch { return '' }
+}
+
+function addBookmark ({ url, title, favicon }, { folderId = null } = {}) {
+  const bm = { id: bmNewId(), url, title: title || hostOf(url) || url, favicon: favicon || null }
+  const folder = folderId ? bmLocate(folderId)?.item : null
+  ;(isFolder(folder) ? folder.children : S.data.bookmarks).push(bm)
+  saveBookmarks()
+  return bm
+}
+
+function addFolder (title) {
+  const f = { id: bmNewId(), folder: true, title: title || 'Neuer Ordner', children: [] }
+  S.data.bookmarks.push(f)
+  saveBookmarks()
+  return f
+}
+
+function removeBookmarkId (id) {
+  const loc = bmLocate(id)
+  if (!loc) return
+  loc.list.splice(loc.index, 1)
+  saveBookmarks()
+  const what = isFolder(loc.item) ? `Ordner „${loc.item.title}“` : (loc.item.title || hostOf(loc.item.url))
+  toast('Aus Favoriten entfernt', what, 'trash', {
+    actions: [{ label: 'Rückgängig', run: () => { loc.list.splice(Math.min(loc.index, loc.list.length), 0, loc.item); saveBookmarks() } }]
+  })
+}
+
 function removeBookmark (url) {
-  S.data.bookmarks = S.data.bookmarks.filter(b => b.url !== url)
-  save('bookmarks')
-  renderFavorites()
-  updateNav()
+  const bm = bmByUrl(url)
+  if (bm) removeBookmarkId(bm.id)
+}
+
+// Verschieben vor/hinter targetId oder in einen Ordner; targetId null = ans Ende der Leiste
+function moveBookmark (id, targetId, where) {
+  if (id === targetId) return
+  const src = bmLocate(id)
+  if (!src) return
+  const dst0 = targetId ? bmLocate(targetId) : null
+  if (where === 'into' && (isFolder(src.item) || !isFolder(dst0?.item))) where = 'after'
+  src.list.splice(src.index, 1)
+  const dst = targetId ? bmLocate(targetId) : null
+  if (!dst) S.data.bookmarks.push(src.item)
+  else if (where === 'into') dst.item.children.push(src.item)
+  else {
+    let list = dst.list
+    let idx = dst.index
+    if (isFolder(src.item) && dst.parent) { list = S.data.bookmarks; idx = list.indexOf(dst.parent) } // Ordner nur in der Leiste
+    list.splice(where === 'after' ? idx + 1 : idx, 0, src.item)
+  }
+  saveBookmarks()
+}
+
+function moveToFolder (id, folderId) {
+  const loc = bmLocate(id)
+  if (!loc || (loc.parent?.id || '') === (folderId || '')) return
+  loc.list.splice(loc.index, 1)
+  const folder = folderId ? bmLocate(folderId)?.item : null
+  ;(isFolder(folder) ? folder.children : S.data.bookmarks).push(loc.item)
+  saveBookmarks()
+}
+
+function folderOptions (selected) {
+  return `<option value="">Favoritenleiste</option>` +
+    S.data.bookmarks.filter(isFolder).map(f => `<option value="${esc(f.id)}" ${f.id === selected ? 'selected' : ''}>${esc(f.title)}</option>`).join('')
+}
+
+// Dialog zum Anlegen/Bearbeiten eines Favoriten oder Ordners
+function editBookmarkDialog (bm, { kind = null, defaults = {} } = {}) {
+  const isNew = !bm
+  const folder = isNew ? kind === 'folder' : isFolder(bm)
+  const parent = bm ? bmLocate(bm.id)?.parent?.id || '' : (defaults.folderId || '')
+  const heading = folder ? (isNew ? 'Neuer Ordner' : 'Ordner umbenennen') : (isNew ? 'Favorit hinzufügen' : 'Favorit bearbeiten')
+  showModal(`
+    <div class="modal-head"><h2>${heading}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Name</label><input class="input" id="bm-title" value="${esc(bm?.title || defaults.title || '')}" placeholder="${folder ? 'z. B. Arbeit' : 'z. B. Nachrichten'}"></div>
+      ${folder ? '' : `
+      <div class="field"><label>Adresse</label><input class="input" id="bm-url" value="${esc(bm?.url || defaults.url || '')}" placeholder="z. B. tagesschau.de" spellcheck="false"></div>
+      <div class="field"><label>Ordner</label><select class="input" id="bm-folder">${folderOptions(parent)}</select></div>`}
+      <div class="muted" id="bm-err" style="color:#f87171;min-height:16px;font-size:12px"></div>
+    </div>
+    <div class="modal-foot">
+      ${isNew ? '' : '<button class="btn ghost" id="bm-del" style="color:#f87171">Entfernen</button><span class="grow"></span>'}
+      <button class="btn ghost" data-close>Abbrechen</button>
+      <button class="btn" id="bm-save">${isNew ? 'Hinzufügen' : 'Speichern'}</button>
+    </div>`)
+  const title = $('#bm-title')
+  ;(folder || bm ? title : $('#bm-url') || title).focus()
+  const submit = () => {
+    const name = title.value.trim()
+    if (folder) {
+      if (isNew) addFolder(name)
+      else { bm.title = name || bm.title; saveBookmarks() }
+      return closeModal()
+    }
+    const url = normalizeBookmarkUrl($('#bm-url').value)
+    if (!url) { $('#bm-err').textContent = 'Bitte eine gültige Adresse eingeben.'; return $('#bm-url').focus() }
+    const folderId = $('#bm-folder').value || null
+    if (isNew) addBookmark({ url, title: name || hostOf(url) }, { folderId })
+    else {
+      if (bm.url !== url) bm.favicon = null
+      Object.assign(bm, { url, title: name || hostOf(url) })
+      moveToFolder(bm.id, folderId)
+      saveBookmarks()
+    }
+    closeModal()
+  }
+  $('#bm-save').onclick = submit
+  $('#modal-card').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') submit() })
+  const del = $('#bm-del')
+  if (del) del.onclick = () => { closeModal(); removeBookmarkId(bm.id) }
+}
+
+// Stern in der Adressleiste (Strg+D): wie in Chrome sofort speichern und Bearbeiten-Blase zeigen
+function toggleBookmark () {
+  if (S.popover === 'bookmark') return hidePopover()
+  const t = activeTab()
+  if (!t || isNewtab(t.url)) return
+  let bm = bmByUrl(t.url)
+  const added = !bm
+  if (!bm) bm = addBookmark({ url: t.url, title: t.title, favicon: t.favicon })
+  const parent = bmLocate(bm.id)?.parent?.id || ''
+  const html = `
+    <h3>${icon('star')} ${added ? 'Zu Favoriten hinzugefügt' : 'Favorit bearbeiten'}</h3>
+    <div class="field"><label>Name</label><input class="input" id="bb-title" value="${esc(bm.title)}"></div>
+    <div class="field"><label>Ordner</label><select class="input" id="bb-folder">${folderOptions(parent)}<option value="__new">Neuer Ordner …</option></select></div>
+    <div class="flex" id="bb-newrow" hidden style="gap:8px;margin-top:8px"><input class="input grow" id="bb-newname" placeholder="Name des Ordners"><button class="btn ghost sm" id="bb-newok">Anlegen</button></div>
+    <div class="flex" style="margin-top:14px;gap:8px">
+      <button class="btn ghost sm" id="bb-more">Mehr …</button><span class="grow"></span>
+      <button class="btn ghost sm" id="bb-remove">Entfernen</button>
+      <button class="btn sm" id="bb-done">Fertig</button>
+    </div>`
+  $('#popover').style.width = '320px'
+  const pop = showPopover($('#btn-star'), html, 'bookmark')
+  const input = $('#bb-title', pop)
+  input.select()
+  input.oninput = () => { bm.title = input.value; saveBookmarks() }
+  input.onkeydown = e => { if (e.key === 'Enter') hidePopover() }
+  const select = $('#bb-folder', pop)
+  const newRow = $('#bb-newrow', pop)
+  select.onchange = () => {
+    if (select.value === '__new') { newRow.hidden = false; return $('#bb-newname', pop).focus() }
+    newRow.hidden = true
+    moveToFolder(bm.id, select.value || null)
+  }
+  const createFolder = () => {
+    const name = $('#bb-newname', pop).value.trim()
+    if (!name) return
+    const f = addFolder(name)
+    moveToFolder(bm.id, f.id)
+    select.innerHTML = folderOptions(f.id) + '<option value="__new">Neuer Ordner …</option>'
+    newRow.hidden = true
+  }
+  $('#bb-newok', pop).onclick = createFolder
+  $('#bb-newname', pop).onkeydown = e => { if (e.key === 'Enter') createFolder() }
+  $('#bb-remove', pop).onclick = () => { hidePopover(); removeBookmarkId(bm.id) }
+  $('#bb-done', pop).onclick = hidePopover
+  $('#bb-more', pop).onclick = () => { hidePopover(); editBookmarkDialog(bm) }
+}
+
+// Favicon eines Favoriten aktualisieren, sobald die Seite besucht wird
+function refreshBookmarkFavicon (tab) {
+  if (!tab?.favicon || !tab.url) return
+  const bm = bmByUrl(tab.url)
+  if (bm && bm.favicon !== tab.favicon) { bm.favicon = tab.favicon; saveBookmarks() }
+}
+
+// Änderungen von der Neuer-Tab-Seite (Kacheln hinzufügen, bearbeiten, verschieben, entfernen)
+function handleNtpBookmark ({ op, data = {} }) {
+  if (op === 'add') {
+    const url = normalizeBookmarkUrl(data.url)
+    if (url && !bmByUrl(url)) addBookmark({ url, title: String(data.title || '').trim() || hostOf(url) })
+  } else if (op === 'update') {
+    const bm = bmLocate(data.id)?.item
+    const url = normalizeBookmarkUrl(data.url)
+    if (bm && !isFolder(bm) && url) {
+      if (bm.url !== url) bm.favicon = null
+      Object.assign(bm, { url, title: String(data.title || '').trim() || hostOf(url) })
+      saveBookmarks()
+    }
+  } else if (op === 'remove') {
+    removeBookmarkId(data.id)
+  } else if (op === 'move') {
+    moveBookmark(data.id, data.beforeId || null, data.beforeId ? 'before' : 'after')
+  }
 }
 
 /* ---------------------------------------------------------------------
@@ -1226,7 +1586,8 @@ function showMenu (x, y, items) {
     if (it.custom) { m.append(it.custom); continue }
     const el = document.createElement('div')
     el.className = 'm-item' + (it.danger ? ' danger' : '')
-    el.innerHTML = `${icon(it.icon || 'dots')}<span class="m-label">${esc(it.label)}</span>${it.hint ? `<span class="m-hint">${esc(it.hint)}</span>` : ''}`
+    el.innerHTML = `${it.fav ? '' : icon(it.icon || 'dots')}<span class="m-label">${esc(it.label)}</span>${it.hint ? `<span class="m-hint">${esc(it.hint)}</span>` : ''}`
+    if (it.fav) el.prepend(faviconEl(it.fav.favicon, it.fav.url, 16)) // Favoriten im Menü mit Website-Symbol
     el.onclick = () => { hideMenu(); it.run() }
     m.append(el)
   }
@@ -1239,6 +1600,7 @@ function hideMenu () { $('#menu').hidden = true }
 
 function showPopover (anchor, html, name) {
   const p = $('#popover')
+  if (S.popover === 'cast' && name !== 'cast') castDialogClosed()
   p.innerHTML = html
   p.hidden = false
   S.popover = name
@@ -1248,7 +1610,12 @@ function showPopover (anchor, html, name) {
   p.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'
   return p
 }
-function hidePopover () { $('#popover').hidden = true; S.popover = null }
+function hidePopover () {
+  const prev = S.popover
+  $('#popover').hidden = true
+  S.popover = null
+  if (prev === 'cast') castDialogClosed()
+}
 
 function closeFloating () {
   hideMenu()
@@ -1314,6 +1681,7 @@ function appMenu () {
     { label: 'Erweiterungen', icon: 'puzzle', run: () => togglePanel('extensions') },
     '-',
     { label: 'Screenshot', icon: 'camera', hint: 'Strg+Umschalt+X', run: screenshot },
+    { label: 'Streamen …', icon: 'cast', run: () => openCast() },
     { label: 'Auf Seite suchen', icon: 'search', hint: 'Strg+F', run: openFind },
     { label: 'Drucken …', icon: 'print', hint: 'Strg+P', run: () => activeTab()?.ready && activeTab().webview.print() },
     { label: 'Entwicklertools', icon: 'command', hint: 'F12', run: devtools },
@@ -1600,7 +1968,7 @@ function commands () {
     { title: 'Leser-Modus', icon: 'reader', hint: 'F9', run: toggleReader },
     { title: 'Screenshot aufnehmen', icon: 'camera', hint: 'Strg+Umschalt+X', run: screenshot },
     { title: S.focus.active ? 'Fokus-Modus beenden' : 'Fokus-Modus starten', icon: 'focus', hint: 'Strg+Umschalt+F', run: () => S.focus.active ? endFocus(false) : startFocus(settings().focusMinutes) },
-    { title: 'Auf Chromecast streamen', icon: 'cast', run: () => openCast() },
+    { title: 'Streamen (Chromecast)', icon: 'cast', run: () => openCast() },
     ...(dockEnabled() ? [
       { title: `${assistant().name}-Seitenleiste`, icon: 'chat', hint: 'Strg+E', run: () => toggleDock() },
       { title: `Seite an ${assistant().name} übergeben`, icon: 'send', hint: 'Strg+Umschalt+L', run: () => sendPageToClaude('context') },
@@ -1662,7 +2030,7 @@ function openPalette () {
       items = [...tabs.filter(t => space(S.activeSpace)).slice(0, 6), ...commands().slice(0, 10)]
     } else {
       const score = arr => arr.map(x => ({ x, s: fuzzy(q, x.title + ' ' + (x.sub || '')) })).filter(o => o.s >= 0).sort((a, b) => b.s - a.s).map(o => o.x)
-      const bms = S.data.bookmarks.map(b => ({ title: b.title, sub: hostOf(b.url), url: b.url, favicon: b.favicon, kind: 'Lesezeichen', run: () => createTab({ url: b.url }) }))
+      const bms = bmFlat().map(b => ({ title: b.title, sub: hostOf(b.url), url: b.url, favicon: b.favicon, kind: 'Lesezeichen', run: () => createTab({ url: b.url }) }))
       const hist = []
       const seen = new Set()
       for (const h of S.data.history) {
@@ -2414,110 +2782,295 @@ function endFocus (completed) {
    Chromecast
    --------------------------------------------------------------------- */
 
-async function openCast (presetUrl) {
-  S.cast.preset = presetUrl || null
-  S.cast.scanning = true
+// Dialog wie in Chrome: alle Geräte mit ihrem Status, Klick auf ein Gerät startet die gewählte Quelle,
+// Klick auf ein aktives Gerät beendet die Übertragung. Quellen: App der Website (Cast SDK), Tab, Bildschirm,
+// das Video der Seite direkt oder eine lokale Datei.
+const CAST_SOURCES = {
+  app: { icon: 'cast', label: c => `App von ${c.page?.host || 'dieser Website'}` },
+  tab: { icon: 'tab', label: () => 'Tab streamen' },
+  screen: { icon: 'monitor', label: () => 'Bildschirm streamen' },
+  media: { icon: 'play', label: () => 'Nur das Video dieser Seite' },
+  file: { icon: 'folder', label: () => 'Datei streamen' }
+}
+
+const castHost = origin => { try { return new URL(origin).hostname.replace(/^www\./, '') } catch { return '' } }
+
+async function openCast (opts = {}) {
+  if (typeof opts === 'string') opts = { preset: opts }
+  const c = S.cast
+  // Eine noch offene Anfrage einer Webseite gilt als abgebrochen
+  if (c.request && c.request !== opts.request) A.send('ui:reply', c.request.reqId, null)
+  c.request = opts.request || null
+  c.preset = opts.preset || null
+  c.menu = false
+  c.avail = null
+  c.scanning = !c.devices.length
   A.send('cast:scan')
-  setTimeout(() => { S.cast.scanning = false; if (S.popover === 'cast') renderCast() }, 6000)
-  S.cast.media = await detectMedia()
+  clearTimeout(c.scanTimer)
+  c.scanTimer = setTimeout(() => { c.scanning = false; if (S.popover === 'cast') renderCast() }, 9000)
+  const t = activeTab()
+  c.page = null
+  if (c.request) {
+    c.page = { appIds: c.request.appIds, host: castHost(c.request.origin) }
+  } else if (t?.wcId) {
+    const app = await A.invoke('cast:page-app', t.wcId).catch(() => null)
+    if (app) c.page = { ...app, host: castHost(app.origin) }
+  }
+  c.media = c.preset ? { url: c.preset, title: 'Ausgewähltes Medium' } : c.request ? null : await detectMedia()
+  c.source = c.page ? 'app' : c.preset ? 'media' : 'tab'
   renderCast()
+  if (c.page) {
+    A.invoke('cast:availability', c.page.appIds).then(av => { c.avail = av; if (S.popover === 'cast') renderCast() })
+  }
+  clearInterval(c.ticker)
+  c.ticker = setInterval(() => {
+    if (S.popover !== 'cast') return clearInterval(c.ticker)
+    tickCastControls()
+  }, 1000)
+}
+
+// Wird beim Schließen des Popovers aufgerufen (siehe hidePopover)
+function castDialogClosed () {
+  const c = S.cast
+  if (c.request) { A.send('ui:reply', c.request.reqId, null); c.request = null }
+  clearInterval(c.ticker)
+  A.send('cast:idle')
 }
 
 async function detectMedia () {
   const t = activeTab()
   if (!t?.ready) return null
-  if (/youtube\.com\/(watch|shorts)|youtu\.be\//.test(t.url)) {
-    return { kind: 'youtube', title: t.title.replace(/ - YouTube$/, ''), url: t.url }
-  }
   try {
     const info = await t.webview.executeJavaScript(`(() => {
       const list = [...document.querySelectorAll('video, audio')];
       const v = list.sort((a, b) => (b.videoWidth || 0) * (b.videoHeight || 0) - (a.videoWidth || 0) * (a.videoHeight || 0))[0];
       if (!v) return null;
-      return { src: v.currentSrc || v.src, time: v.currentTime || 0, poster: v.poster || '', title: document.title, video: v.tagName === 'VIDEO' };
+      return { src: v.currentSrc || v.src, time: v.currentTime || 0, poster: v.poster || '', title: document.title };
     })()`)
-    if (!info) return null
-    if (/^https?:/.test(info.src)) return { kind: 'media', title: info.title, url: info.src, startTime: info.time, poster: info.poster }
-    if (info.src?.startsWith('blob:')) return { kind: 'blob', title: info.title }
+    if (info && /^https?:/.test(info.src)) return { url: info.src, title: info.title, startTime: info.time, poster: info.poster }
   } catch {}
   return null
 }
 
+function castSessionLabel (s) {
+  if (s.kind === 'tab') return `Tab wird gestreamt · ${s.title || ''}`
+  if (s.kind === 'screen') return 'Bildschirm wird gestreamt'
+  if (s.kind === 'app') return s.appName || s.title || 'App'
+  return (s.state === 'PAUSED' ? 'Pausiert · ' : '') + (s.title || 'Medium')
+}
+
+function castTime (s) {
+  return (s.time || 0) + (s.state === 'PLAYING' && s.at ? (Date.now() - s.at) / 1000 : 0)
+}
+
+function castControls (s) {
+  const playable = (s.kind === 'media' || s.kind === 'file' || s.kind === 'app') && s.state && s.duration
+  const vol = Math.round((s.volume?.level ?? 1) * 100)
+  const t = castTime(s)
+  return `<div class="cast-ctl" data-dev="${esc(s.deviceId)}">
+    ${playable ? `<div class="flex">
+      <button class="icon-btn sm" data-c="toggle" title="${s.state === 'PAUSED' ? 'Fortsetzen' : 'Pause'}">${icon(s.state === 'PAUSED' ? 'play' : 'pause')}</button>
+      <input type="range" class="grow" data-c="seek" min="0" max="${Math.round(s.duration)}" value="${Math.round(t)}">
+      <span class="muted ct-time">${fmtTime(t)} / ${fmtTime(s.duration)}</span>
+    </div>` : ''}
+    <div class="flex">
+      <button class="icon-btn sm" data-c="mute" title="${s.volume?.muted ? 'Ton an' : 'Stumm'}">${icon(s.volume?.muted ? 'mute' : 'volume')}</button>
+      <input type="range" class="grow" data-c="vol" min="0" max="100" value="${vol}" title="Lautstärke am Gerät">
+    </div>
+  </div>`
+}
+
+function tickCastControls () {
+  for (const el of document.querySelectorAll('#popover .cast-ctl')) {
+    const s = S.cast.sessions.find(x => x.deviceId === el.dataset.dev)
+    if (!s || s.state !== 'PLAYING') continue
+    const seek = el.querySelector('[data-c="seek"]')
+    if (seek && !seek.matches(':active')) seek.value = Math.round(castTime(s))
+    const label = el.querySelector('.ct-time')
+    if (label) label.textContent = `${fmtTime(castTime(s))} / ${fmtTime(s.duration)}`
+  }
+}
+
+function castSourceText (c) {
+  const t = activeTab()
+  switch (c.source) {
+    case 'app': return c.request ? `${c.page.host} möchte auf ein Gerät streamen` : `App von ${c.page?.host} auf dem Gerät öffnen`
+    case 'tab': return `Tab: ${t?.title || 'Aktueller Tab'}`
+    case 'screen': return 'Gesamter Bildschirm mit Ton'
+    case 'media': return c.media?.title || 'Video dieser Seite'
+    case 'file': return c.file ? c.file.split(/[\\/]/).pop() : 'Datei auswählen …'
+  }
+  return ''
+}
+
 function renderCast () {
   const c = S.cast
-  const devs = c.devices
-  if (!c.selected && devs.length) c.selected = devs[0].id
-  const st = c.status
-  const playing = st && !['STOPPED', 'FINISHED'].includes(st.state)
-  const media = []
-  if (c.preset) media.push({ kind: 'media', title: 'Ausgewähltes Medium', url: c.preset, sub: c.preset })
-  if (c.media?.kind === 'youtube') media.push({ ...c.media, sub: 'Wird in der YouTube-App auf dem Fernseher geöffnet' })
-  if (c.media?.kind === 'media') media.push({ ...c.media, sub: 'Video dieser Seite' + (c.media.startTime > 5 ? ` · ab ${fmtTime(c.media.startTime)}` : '') })
+  const sessions = new Map(c.sessions.map(s => [s.deviceId, s]))
+  const sources = c.request ? [] : Object.keys(CAST_SOURCES).filter(k => (k !== 'app' || c.page) && (k !== 'media' || c.media?.url))
+  const mirrorSrc = c.source === 'tab' || c.source === 'screen'
+
+  const row = d => {
+    const s = sessions.get(d.id)
+    const ico = d.kind === 'tv' ? 'tv' : d.kind === 'group' ? 'speakers' : 'speaker'
+    let status = d.app || d.model
+    let disabled = false
+    if (s) status = castSessionLabel(s)
+    else if (c.source === 'app' && c.avail && c.avail[d.id] === false) { status = 'Diese App wird hier nicht unterstützt'; disabled = true }
+    else if (mirrorSrc && d.kind !== 'tv') status = `Nur Ton · ${status}`
+    return `<div class="device${s ? ' active' : ''}${disabled ? ' disabled' : ''}" data-d="${esc(d.id)}" title="${s && !c.request ? 'Klicken zum Beenden' : ''}">
+        <div class="d-ico">${icon(ico)}</div>
+        <div class="d-main"><div class="d-name">${esc(d.name)}</div><div class="d-host">${esc(status)}</div></div>
+        ${s ? `<button class="btn sm ghost d-stop" data-stop="${esc(d.id)}">Beenden</button>` : ''}
+      </div>${s ? castControls(s) : ''}`
+  }
 
   const html = `
-    <h3>${icon('cast')} Streamen</h3>
-    <div class="sub">Sende Videos, Musik und Bilder an Chromecast & Google-TV-Geräte in deinem WLAN.</div>
-    ${playing ? `<div class="now-playing">
-      <div class="muted" style="font-size:11.5px">Läuft auf ${esc(st.device || 'Chromecast')}</div>
-      <div style="font-weight:650;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(st.title || 'Medium')}</div>
-      <div class="np-controls">
-        <button class="icon-btn sm" data-c="toggle">${icon(st.state === 'PAUSED' ? 'play' : 'pause')}</button>
-        <button class="icon-btn sm" data-c="back">${icon('back')}</button>
-        <input type="range" id="cast-seek" min="0" max="${Math.round(st.duration || 0)}" value="${Math.round(st.time || 0)}" ${st.duration ? '' : 'disabled'}>
-        <button class="icon-btn sm" data-c="fwd">${icon('forward')}</button>
-        <button class="icon-btn sm" data-c="stop" title="Beenden">${icon('stop')}</button>
-      </div>
-      <div class="flex" style="margin-top:6px;font-size:11.5px" ><span class="muted">${fmtTime(st.time)} / ${fmtTime(st.duration)}</span><span class="grow"></span>${icon('volume')}<input type="range" id="cast-vol" min="0" max="100" value="${Math.round((st.volume ?? 1) * 100)}" style="width:90px;accent-color:var(--accent)"></div>
-    </div><div class="pop-sep"></div>` : ''}
-    <div class="muted" style="font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Geräte</div>
-    ${devs.map(d => `<div class="device ${d.id === c.selected ? 'sel' : ''}" data-d="${esc(d.id)}"><div class="d-ico">${icon('tv')}</div><div><div class="d-name">${esc(d.name)}</div><div class="d-host">${esc(d.host)}</div></div></div>`).join('')}
-    ${c.scanning || !devs.length ? `<div class="scan">${c.scanning ? '<span class="pulse"></span> Suche nach Geräten …' : `${icon('info')} Keine Geräte gefunden. PC und Chromecast müssen im selben Netzwerk sein.`}</div>` : ''}
-    <div class="pop-sep"></div>
-    <div class="muted" style="font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Was möchtest du streamen?</div>
-    ${media.map((m, i) => `<div class="media-opt"><span>${icon(m.kind === 'youtube' ? 'play' : 'tv')}</span><div class="m-t"><div>${esc(m.title)}</div><div>${esc(m.sub || '')}</div></div><button class="btn sm" data-m="${i}">Streamen</button></div>`).join('')}
-    ${c.media?.kind === 'blob' ? `<div class="media-opt"><span>${icon('info')}</span><div class="m-t" style="white-space:normal"><div>Geschützter Stream</div><div style="white-space:normal">Das Video dieser Seite wird als verschlüsselter/segmentierter Stream geladen und kann nicht direkt übertragen werden.</div></div></div>` : ''}
-    <div class="media-opt"><span>${icon('folder')}</span><div class="m-t"><div>Lokale Datei</div><div>Video, Musik oder Foto vom PC</div></div><button class="btn ghost sm" id="cast-file">Auswählen</button></div>
-    <div class="flex" style="margin-top:8px"><input class="input grow" id="cast-url" placeholder="Medien-URL (mp4, mp3, m3u8, YouTube …)"><button class="btn ghost sm" id="cast-url-go">Los</button></div>`
+    <div class="cast-head">
+      <h3>${icon('cast')} Streamen</h3>
+      ${sources.length > 1 ? `<button class="btn ghost sm" id="cast-src">Quellen ${icon('chevronDown')}</button>` : ''}
+    </div>
+    <div class="cast-source">${icon(CAST_SOURCES[c.source].icon)}<span>${esc(castSourceText(c))}</span></div>
+    ${c.menu ? `<div class="cast-menu">${sources.map(k => `
+      <div class="cast-opt${k === c.source ? ' sel' : ''}" data-src="${k}">${icon(CAST_SOURCES[k].icon)}<span>${esc(CAST_SOURCES[k].label(c))}</span>${k === c.source ? icon('check') : ''}</div>`).join('')}
+    </div>` : ''}
+    <div class="cast-devs">${c.devices.map(row).join('')}</div>
+    ${c.scanning || !c.devices.length
+      ? `<div class="scan">${c.scanning ? '<span class="pulse"></span> Suche nach Geräten …' : `${icon('info')} Keine Geräte gefunden. PC und Chromecast müssen im selben WLAN sein.`}</div>`
+      : ''}`
+
   const p = S.popover === 'cast' ? $('#popover') : null
   const pop = p || showPopover($('#btn-cast'), html, 'cast')
   if (p) p.innerHTML = html
-  pop.style.width = '370px'
+  pop.style.width = '380px'
+
   pop.onclick = async e => {
-    const d = e.target.closest('[data-d]')
-    if (d) { c.selected = d.dataset.d; return renderCast() }
-    const m = e.target.closest('[data-m]')
-    if (m) return castPlay(media[+m.dataset.m])
-    const ctl = e.target.closest('[data-c]')?.dataset.c
-    if (ctl === 'toggle') A.send('cast:control', st.state === 'PAUSED' ? 'resume' : 'pause')
-    if (ctl === 'stop') A.send('cast:control', 'stop')
-    if (ctl === 'back') A.send('cast:control', 'seek', -15)
-    if (ctl === 'fwd') A.send('cast:control', 'seek', 30)
-    if (e.target.id === 'cast-file') {
-      const file = await A.invoke('cast:pick-file')
-      if (file) castPlay({ file, title: file.split(/[\\/]/).pop() })
+    if (e.target.closest('#cast-src')) { c.menu = !c.menu; return renderCast() }
+    const opt = e.target.closest('[data-src]')
+    if (opt) {
+      c.menu = false
+      c.source = opt.dataset.src
+      if (c.source === 'file') {
+        const file = await A.invoke('cast:pick-file')
+        if (file) c.file = file
+        else if (!c.file) c.source = 'tab'
+      }
+      if (c.source === 'app' && c.page && !c.avail) A.invoke('cast:availability', c.page.appIds).then(av => { c.avail = av; if (S.popover === 'cast') renderCast() })
+      return renderCast()
     }
-    if (e.target.id === 'cast-url-go') {
-      const url = $('#cast-url', pop).value.trim()
-      if (url) castPlay({ url, title: url })
+    const stop = e.target.closest('[data-stop]')
+    if (stop) return castStop(stop.dataset.stop)
+    const ctl = e.target.closest('[data-c]')
+    const box = e.target.closest('.cast-ctl')
+    if (box) {
+      const id = box.dataset.dev
+      const s = c.sessions.find(x => x.deviceId === id)
+      if (ctl?.dataset.c === 'toggle') A.send('cast:control', id, s?.state === 'PAUSED' ? 'resume' : 'pause')
+      if (ctl?.dataset.c === 'mute') A.send('cast:control', id, 'mute', !s?.volume?.muted)
+      return
+    }
+    const d = e.target.closest('[data-d]')
+    if (!d || d.classList.contains('disabled')) return
+    if (sessions.has(d.dataset.d) && !c.request) return castStop(d.dataset.d)
+    castStart(d.dataset.d)
+  }
+  for (const input of pop.querySelectorAll('.cast-ctl input[type="range"]')) {
+    const id = input.closest('.cast-ctl').dataset.dev
+    input.onchange = () => {
+      if (input.dataset.c === 'seek') A.send('cast:control', id, 'seekTo', +input.value)
+      if (input.dataset.c === 'vol') A.send('cast:control', id, 'volume', input.value / 100)
     }
   }
-  const seek = $('#cast-seek', pop)
-  if (seek) seek.onchange = () => A.send('cast:control', 'seekTo', +seek.value)
-  const vol = $('#cast-vol', pop)
-  if (vol) vol.onchange = () => A.send('cast:control', 'volume', vol.value / 100)
 }
 
-async function castPlay (media) {
-  const c = S.cast
-  if (!c.selected) return toast('Kein Gerät ausgewählt', 'Warte, bis ein Chromecast gefunden wurde.', 'cast')
-  const dev = c.devices.find(d => d.id === c.selected)
-  toast('Verbinde …', `Streame auf ${dev?.name || 'Chromecast'}`, 'cast', { duration: 2500 })
-  const res = await A.invoke('cast:play', c.selected, media)
-  if (!res.ok) return toast('Streamen fehlgeschlagen', res.error, 'warning', { duration: 6000 })
-  const t = activeTab()
-  if (t?.ready && media.kind !== undefined) t.webview.executeJavaScript('document.querySelectorAll("video,audio").forEach(v => v.pause())').catch(() => {})
-  $('#btn-cast').classList.add('on')
+// Neu zeichnen, aber nicht, während ein Regler gezogen wird
+function refreshCast () {
+  if (S.popover !== 'cast') return
+  if (document.querySelector('#popover input[type="range"]:active')) return
+  renderCast()
 }
+
+async function castStart (deviceId) {
+  const c = S.cast
+  const dev = c.devices.find(d => d.id === deviceId)
+  if (!dev) return
+  if (c.request) {
+    const req = c.request
+    c.request = null
+    A.send('ui:reply', req.reqId, deviceId)
+    hidePopover()
+    return toast('Verbinde …', `${castHost(req.origin)} auf ${dev.name}`, 'cast', { duration: 2500 })
+  }
+  const t = activeTab()
+  toast('Verbinde …', `Streame auf ${dev.name}`, 'cast', { duration: 2500 })
+  let res = { ok: true }
+  if (c.source === 'app') res = await A.invoke('cast:start-app', deviceId, t?.wcId)
+  else if (c.source === 'tab' || c.source === 'screen') res = await startMirror(c.source, dev)
+  else if (c.source === 'media') {
+    res = await A.invoke('cast:play', deviceId, { ...c.media, kind: 'media', wcId: t?.wcId })
+    if (res.ok && t?.ready) t.webview.executeJavaScript('document.querySelectorAll("video,audio").forEach(v => v.pause())').catch(() => {})
+  } else if (c.source === 'file' && c.file) {
+    res = await A.invoke('cast:play', deviceId, { file: c.file, title: c.file.split(/[\\/]/).pop(), kind: 'file' })
+  }
+  if (!res.ok) toast('Streamen fehlgeschlagen', res.error, 'warning', { duration: 7000 })
+}
+
+function castStop (deviceId) {
+  A.send('cast:stop', deviceId)
+  if (S.cast.mirror?.deviceId === deviceId) stopMirror()
+}
+
+// Spiegelung: Tab bzw. Bildschirm aufnehmen, als WebM codieren und an den Hauptprozess schicken,
+// der den Stream im Heimnetz für das Gerät bereitstellt.
+async function startMirror (kind, dev) {
+  const c = S.cast
+  const t = activeTab()
+  if (kind === 'tab' && !t?.wcId) return { ok: false, error: 'Kein Tab zum Streamen geöffnet.' }
+  const audioOnly = dev.kind !== 'tv'
+  stopMirror()
+  const { token } = await A.invoke('cast:mirror-prepare', kind, t?.wcId, audioOnly)
+  let stream
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } },
+      audio: kind === 'tab' ? { suppressLocalAudioPlayback: true } : true
+    })
+  } catch (err) {
+    A.send('cast:mirror-end', token)
+    return { ok: false, error: `Aufnahme nicht möglich (${err.message})` }
+  }
+  if (audioOnly) for (const tr of stream.getVideoTracks()) { tr.stop(); stream.removeTrack(tr) }
+  const hasAudio = stream.getAudioTracks().length > 0
+  if (audioOnly && !hasAudio) {
+    A.send('cast:mirror-end', token)
+    return { ok: false, error: 'Es wurde kein Ton zum Streamen gefunden.' }
+  }
+  const mimeType = audioOnly ? 'audio/webm;codecs=opus' : hasAudio ? 'video/webm;codecs=vp8,opus' : 'video/webm;codecs=vp8'
+  // Regelmäßige Schlüsselbilder: ein später verbundenes Gerät kann so nach spätestens 2 s einsteigen
+  const rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 160_000, videoKeyFrameIntervalDuration: 2000 })
+  rec.ondataavailable = async e => { if (e.data.size) A.send('cast:mirror-data', token, await e.data.arrayBuffer()) }
+  rec.start(200)
+  const m = { rec, stream, token, deviceId: dev.id, kind, tab: kind === 'tab' ? t : null }
+  c.mirror = m
+  m.tab?.webview?.classList.add('casting')
+  for (const tr of stream.getTracks()) {
+    tr.addEventListener('ended', () => { if (c.mirror === m) castStop(dev.id) })
+  }
+  const title = kind === 'tab' ? (t.title || t.url) : 'Bildschirm'
+  const res = await A.invoke('cast:mirror-start', dev.id, { token, kind, title, audioOnly, wcId: t?.wcId })
+  if (!res.ok && c.mirror === m) stopMirror()
+  return res
+}
+
+function stopMirror () {
+  const m = S.cast.mirror
+  if (!m) return
+  S.cast.mirror = null
+  m.tab?.webview?.classList.remove('casting')
+  try { if (m.rec.state !== 'inactive') m.rec.stop() } catch {}
+  for (const tr of m.stream.getTracks()) tr.stop()
+  A.send('cast:mirror-end', m.token)
+}
+
 
 /* ---------------------------------------------------------------------
    Einstellungen
@@ -2618,7 +3171,7 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
     about: `<div class="about-hero">${$('.logo').outerHTML.replace('class="logo"', 'style="width:64px;height:64px"').replace('id="lg"', 'id="lg2"').replace('url(#lg)', 'url(#lg2)')}<div><h4>Caravel</h4><div class="muted">Version ${esc(info.version)} · Chromium ${esc(info.chrome)}</div></div></div>
       <p style="line-height:1.6">Caravel ist ein Browser für Menschen, die im Web arbeiten, lernen und entdecken. Er verbindet die Chromium-Engine mit Ideen, die andere Browser nicht haben: <b>Spaces</b>, <b>Split View</b>, <b>Peek</b>, <b>Fokus-Modus</b>, <b>Seiten-Notizen</b>, <b>Zeitkapseln</b>, <b>Tab-Schlaf</b>, <b>Ambient-Farben</b>, einen <b>Leser-Modus mit Vorlesefunktion</b> und <b>Chromecast</b>.</p>
       <div class="card"><div class="kbd-list"><div>Electron</div><div>${esc(info.electron)}</div><div>Chromium</div><div>${esc(info.chrome)}</div><div>Node.js</div><div>${esc(info.node)}</div><div>Download-Ordner</div><div>${esc(info.downloads)}</div></div></div>
-      <p class="muted" style="font-size:12px;line-height:1.6">Chrome-Erweiterungen: electron-chrome-extensions (GPL-3.0), electron-chrome-web-store (MIT). Werbeblocker: @ghostery/adblocker (MPL-2.0) mit den Filterlisten von uBlock Origin (GPL-3.0) und EasyList (GPL-3.0/CC BY-SA 3.0). VPN: Tor (BSD-3-Clause), wireproxy (ISC). Leser-Modus: Mozilla Readability (Apache-2.0), Turndown (MIT). Chromecast: chromecast-api (MIT).<br>„Claude“ ist eine Marke von Anthropic, „ChatGPT“ und „Codex“ sind Marken von OpenAI. Caravel ist ein unabhängiges Projekt und steht in keiner Verbindung zu Anthropic, OpenAI, Google oder dem Tor Project.</p>`
+      <p class="muted" style="font-size:12px;line-height:1.6">Chrome-Erweiterungen: electron-chrome-extensions (GPL-3.0), electron-chrome-web-store (MIT). Werbeblocker: @ghostery/adblocker (MPL-2.0) mit den Filterlisten von uBlock Origin (GPL-3.0) und EasyList (GPL-3.0/CC BY-SA 3.0). VPN: Tor (BSD-3-Clause), wireproxy (ISC). Leser-Modus: Mozilla Readability (Apache-2.0), Turndown (MIT). Chromecast: castv2 (MIT), multicast-dns (MIT).<br>„Claude“ ist eine Marke von Anthropic, „ChatGPT“ und „Codex“ sind Marken von OpenAI. Caravel ist ein unabhängiges Projekt und steht in keiner Verbindung zu Anthropic, OpenAI, Google oder dem Tor Project.</p>`
   }
   showModal(`<div class="settings"><nav><h2>Einstellungen</h2>${nav.map(([k, ic, l]) => `<button data-sec="${k}" class="${k === section ? 'on' : ''}">${icon(ic)} ${l}</button>`).join('')}</nav><section><button class="icon-btn sm close-x" data-close>${icon('x')}</button>${sections[section]}</section></div>`, { wide: true })
   const card = $('#modal-card')
@@ -2959,6 +3512,7 @@ function initToolbar () {
   $('#btn-sidebar').onclick = toggleSidebar
   $('#brand').onclick = () => { if (settings().sidebarCollapsed) toggleSidebar() }
   initTabStrip()
+  initFavorites()
   $('#btn-back').innerHTML = icon('back')
   $('#btn-forward').innerHTML = icon('forward')
   $('#btn-back').onclick = goBack
@@ -2999,7 +3553,7 @@ function flushPending () {
 function initGlobalEvents () {
   document.addEventListener('mousedown', e => {
     if (!$('#menu').hidden && !e.target.closest('#menu')) hideMenu()
-    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-adblock, #btn-vpn, #focus-hud')) hidePopover()
+    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-adblock, #btn-vpn, #focus-hud, #btn-star')) hidePopover()
   })
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeTopLayer()
@@ -3127,13 +3681,28 @@ function initGlobalEvents () {
     updateDownloadDot()
   })
   A.on('perm:request', p => { S.perms.push(p); if (S.perms.length === 1) showNextPermission() })
-  A.on('cast:devices', devs => { S.cast.devices = devs; if (S.popover === 'cast') renderCast() })
-  A.on('cast:status', st => {
-    S.cast.status = st
-    const live = st && !['STOPPED', 'FINISHED'].includes(st.state)
-    $('#btn-cast').classList.toggle('on', !!live)
-    if (S.popover === 'cast') renderCast()
+  A.on('cast:devices', devs => {
+    S.cast.devices = devs
+    if (devs.length) S.cast.scanning = false
+    refreshCast()
   })
+  A.on('cast:sessions', list => {
+    S.cast.sessions = list
+    $('#btn-cast').classList.toggle('on', list.length > 0)
+    refreshCast()
+  })
+  A.on('cast:ended', ({ deviceId, reason }) => {
+    if (S.cast.mirror?.deviceId === deviceId) stopMirror()
+    if (reason === 'closed') toast('Streamen beendet', 'Die Verbindung zum Gerät wurde getrennt.', 'cast')
+  })
+  // Cast-Knopf einer Webseite (z. B. im YouTube-Player): Gerät auswählen
+  A.on('cast:pick', req => {
+    const t = tabByWc(req.wcId)
+    if (t && t.spaceId === S.activeSpace && t.id !== curSpace().activeId) activate(t.id)
+    openCast({ request: req })
+  })
+  A.on('ntp:bookmark', handleNtpBookmark)
+  A.on('cast:error', msg => toast('Streamen fehlgeschlagen', msg, 'warning', { duration: 7000 }))
   A.on('window-fullscreen', on => { S.windowFull = on })
 }
 
@@ -3143,7 +3712,7 @@ function startSleepTimer () {
     if (!min) return
     const limit = Date.now() - min * 60000
     for (const t of S.tabs.values()) {
-      if (t.webview && !t.audible && !isVisible(t) && t.lastActive < limit) sleepTab(t)
+      if (t.webview && !t.audible && !isVisible(t) && t.lastActive < limit && t !== S.cast.mirror?.tab) sleepTab(t)
     }
   }, 30000)
 }

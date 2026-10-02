@@ -1,4 +1,4 @@
-﻿Caravel – Entdecke das Web
+Caravel – Entdecke das Web
 Version 2.0.0
 
 Copyright (C) 2026 Caravel Project
@@ -26,7 +26,7 @@ Verwendete Komponenten
   werden zur Laufzeit von den offiziellen Servern geladen
 - Tor (BSD-3-Clause) – kostenloser VPN-Modus
 - wireproxy (ISC) – WireGuard-Unterstützung
-- chromecast-api (MIT) – Streaming auf Chromecast-Geräte
+- castv2, multicast-dns (MIT) – Cast-Protokoll und Geräteerkennung für Chromecast
 - Mozilla Readability (Apache-2.0), Turndown (MIT) – Leser-Modus und Markdown
 
 ------------------------------------------------------------------------

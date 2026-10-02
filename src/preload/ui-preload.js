@@ -7,17 +7,20 @@ injectBrowserAction()
 
 const EVENTS = new Set([
   'shortcut', 'open-tab', 'ctx-action', 'ext:create-tab', 'ext:select-tab', 'ext:remove-tab', 'ext:changed',
-  'adblock:blocked', 'adblock:status', 'dl:update', 'perm:request', 'cast:devices', 'cast:status', 'window-fullscreen',
+  'adblock:blocked', 'adblock:status', 'dl:update', 'perm:request', 'cast:devices', 'cast:sessions', 'cast:ended',
+  'cast:pick', 'cast:error', 'ntp:bookmark', 'window-fullscreen',
   'vpn:state', 'crx:tabgroups', 'crx:sidepanel-open', 'crx:sidepanel-close', 'crx:debugger', 'mcp:ui'
 ])
 const SENDS = new Set([
   'store:set', 'ui:ready', 'ui:reply', 'ui:titlebar', 'ui:accent', 'ui:peek-wc', 'ui:fullscreen', 'ui:webview',
-  'tab:activated', 'dl:open', 'dl:show', 'dl:control', 'perm:respond', 'cast:scan', 'cast:control', 'focus:set',
+  'tab:activated', 'dl:open', 'dl:show', 'dl:control', 'perm:respond', 'cast:scan', 'cast:idle', 'cast:control', 'cast:stop',
+  'cast:mirror-data', 'cast:mirror-end', 'focus:set',
   'app:default-browser', 'app:relaunch', 'clipboard:write', 'crx:sidepanel-closed'
 ])
 const INVOKES = new Set([
   'store:all', 'tab:screenshot', 'suggest', 'ext:list', 'ext:remove', 'ext:load-unpacked', 'ext:newtab-override',
-  'cast:play', 'cast:pick-file', 'data:clear', 'app:info', 'adblock:info', 'adblock:update',
+  'cast:play', 'cast:pick-file', 'cast:availability', 'cast:page-app', 'cast:start-app', 'cast:mirror-prepare',
+  'cast:mirror-start','data:clear', 'app:info', 'adblock:info', 'adblock:update',
   'claude:status', 'claude:install-extension', 'claude:open-extension', 'claude:mcp-new-token', 'codex:install-mcp',
   'vpn:state', 'vpn:connect', 'vpn:disconnect', 'vpn:new-identity', 'vpn:set-country', 'vpn:import-wireguard'
 ])

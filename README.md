@@ -25,7 +25,7 @@ registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installi
 | **Fokus-Modus**, **Seiten-Notizen**, **Zeitkapseln**, **Tab-Schlaf** | `Strg+Umschalt+F`, `Strg+Umschalt+N`, Seitenleiste |
 | **Leser-Modus mit Vorlesen**, **Seite als Markdown kopieren** | `F9`, Rechtsklick |
 | **Chrome-Erweiterungen** aus dem Chrome Web Store | Web Store › „Hinzufügen“ |
-| **Chromecast** – YouTube, Videos der Seite, lokale Dateien | Cast-Symbol |
+| **Chromecast wie in Chrome** – Cast-Knöpfe von Webseiten (z. B. YouTube), Tab und Bildschirm spiegeln, Video der Seite, lokale Dateien; alle Geräte mit Status, Lautstärke und Steuerung | Cast-Symbol, ⋮ › Streamen, Rechtsklick |
 
 ### Claude Code anbinden
 
@@ -77,6 +77,10 @@ Aufbau:
   experimentell.
 - **VPN:** gilt nur für den Browser. Der erste Tor-Start lädt das Relay-Verzeichnis und kann einige Minuten dauern.
   Tor verbirgt die IP, bietet aber nicht die Anonymität des Tor Browsers.
-- **Chromecast:** kein Spiegeln ganzer Tabs, keine DRM-Streams.
+- **Chromecast:** Caravel stellt Webseiten die Presentation API mit `cast:`-URLs bereit, die Chrome für das Cast SDK
+  (`cast_sender.js`) anbietet; Sitzungen laufen über das Cast-Protokoll (`castv2`) direkt zum Gerät. Tab- und
+  Bildschirmspiegelung werden als WebM-Live-Stream (VP8/Opus) über den Standard-Medienempfänger gesendet – dadurch
+  einige Sekunden Verzögerung (Chrome nutzt dafür ein eigenes Streaming-Protokoll). Kopiergeschützte Videos (DRM)
+  lassen sich nicht spiegeln.
 - Der Installer ist nicht code-signiert (SmartScreen-Warnung beim ersten Start).
 - Lizenz: GPL-3.0 (wegen `electron-chrome-extensions`).

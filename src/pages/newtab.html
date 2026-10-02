@@ -22,10 +22,33 @@
       <span class="engine" id="engine">Google</span>
     </form>
 
-    <section class="tiles" id="tiles"></section>
+    <section class="shelf">
+      <div class="shelf-head"><h2>Favoriten</h2><span class="hint">Ziehen zum Sortieren</span></div>
+      <div class="tiles" id="favs"></div>
+    </section>
+
+    <section class="shelf" id="top-shelf" hidden>
+      <div class="shelf-head"><h2>Häufig besucht</h2></div>
+      <div class="tiles small" id="top"></div>
+    </section>
 
     <footer class="stats" id="stats"></footer>
   </main>
+
+  <dialog id="edit" class="edit">
+    <form method="dialog" id="edit-form">
+      <h3 id="edit-title">Favorit hinzufügen</h3>
+      <label>Name<input id="edit-name" autocomplete="off" placeholder="z. B. Nachrichten"></label>
+      <label>Adresse<input id="edit-url" autocomplete="off" spellcheck="false" placeholder="z. B. tagesschau.de" required></label>
+      <p class="err" id="edit-err"></p>
+      <div class="edit-foot">
+        <button type="button" class="b ghost danger" id="edit-del">Entfernen</button>
+        <span class="grow"></span>
+        <button type="button" class="b ghost" id="edit-cancel">Abbrechen</button>
+        <button type="submit" class="b" id="edit-save">Fertig</button>
+      </div>
+    </form>
+  </dialog>
   <script src="newtab.js"></script>
 </body>
 </html>

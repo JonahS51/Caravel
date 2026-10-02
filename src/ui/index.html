@@ -72,7 +72,7 @@
           <div id="focus-hud" class="focus-hud" hidden></div>
           <button class="vpn-pill" id="btn-vpn" title="VPN"></button>
           <button class="icon-btn" id="btn-split" title="Split View (Strg+Umschalt+S)"></button>
-          <button class="icon-btn" id="btn-cast" title="Auf Chromecast streamen"></button>
+          <button class="icon-btn" id="btn-cast" title="Streamen"></button>
           <button class="icon-btn" id="btn-focus" title="Fokus-Modus (Strg+Umschalt+F)"></button>
           <browser-action-list id="ext-actions" partition="persist:caravel" alignment="bottom left"></browser-action-list>
           <button class="claude-btn" id="btn-claude" title="Claude-Seitenleiste (Strg+E)"></button>
@@ -89,7 +89,11 @@
         <div class="ts-fill"></div>
         <div class="wco-spacer"></div>
       </div>
-      <div id="favbar" class="favbar" hidden></div>
+      <div id="favbar" class="favbar" hidden>
+        <div class="fav-empty" id="fav-empty" hidden>Für schnellen Zugriff: Seiten mit dem Stern speichern oder Tabs hierher ziehen.</div>
+        <span class="favbar-fill"></span>
+        <button class="icon-btn sm fav-more" id="fav-more" title="Weitere Favoriten" hidden></button>
+      </div>
 
       <div class="content-row">
         <section id="stage">

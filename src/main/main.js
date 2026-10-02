@@ -1,7 +1,7 @@
 // Caravel – Hauptprozess
 const {
   app, BrowserWindow, session, ipcMain, protocol, net, Menu, clipboard, shell,
-  dialog, webContents, nativeTheme, nativeImage
+  dialog, webContents, nativeTheme, nativeImage, desktopCapturer
 } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
@@ -63,6 +63,7 @@ const pendingRequests = new Map()
 const pendingPermissions = new Map()
 const downloads = new Map()
 let requestSeq = 0
+let pendingCapture = null // Tab-/Bildschirmspiegelung: welche Quelle getDisplayMedia liefern soll
 
 // ---------------------------------------------------------------------------
 // Hilfsfunktionen
@@ -254,7 +255,7 @@ function showContextMenu (wc, params) {
   }
   if ((params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
     if (!params.srcURL.startsWith('blob:')) {
-      t.push({ label: 'Auf Chromecast streamen …', click: action('cast', { url: params.srcURL }) })
+      t.push({ label: 'Medium streamen …', click: action('cast', { url: params.srcURL }) })
     }
     t.push({ label: 'Medienadresse kopieren', click: () => clipboard.writeText(params.srcURL) })
     sep()
@@ -296,7 +297,7 @@ function showContextMenu (wc, params) {
     t.push({ label: 'Seite als Markdown kopieren', click: action('markdown') })
     t.push({ label: 'Leser-Modus', click: action('reader') })
     t.push({ label: 'Screenshot aufnehmen', click: action('screenshot') })
-    t.push({ label: 'Seite auf Chromecast streamen …', click: action('cast') })
+    t.push({ label: 'Streamen …', click: action('cast') })
     t.push({ label: 'Seitenquelltext anzeigen', click: () => send('open-tab', { url: 'view-source:' + wc.getURL() }) })
     sep()
   }
@@ -605,6 +606,7 @@ function registerIpc () {
     }
     store.set(key, value)
     if (key === 'settings') applySettings()
+    if (key === 'bookmarks') notifyNewtabPages()
   })
 
   ipcMain.on('ui:ready', () => {
@@ -780,11 +782,56 @@ function registerIpc () {
   })
 
   // Chromecast
+  const result = p => p.then(() => ({ ok: true }), err => ({ ok: false, error: err.message }))
   ipcMain.on('cast:scan', () => cast.scan())
-  ipcMain.handle('cast:play', async (_e, deviceId, media) => {
-    try { await cast.play(deviceId, media); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
+  ipcMain.on('cast:idle', () => cast.idle())
+  ipcMain.handle('cast:play', (_e, deviceId, media) => result(cast.play(deviceId, media)))
+  ipcMain.on('cast:control', (_e, deviceId, action, value) => cast.control(deviceId, action, value))
+  ipcMain.on('cast:stop', (_e, deviceId) => cast.stop(deviceId))
+  ipcMain.handle('cast:availability', (_e, appIds) => cast.availability(appIds))
+  ipcMain.handle('cast:page-app', (_e, wcId) => cast.pageApp(wcId))
+  ipcMain.handle('cast:start-app', (_e, deviceId, wcId) => result((async () => {
+    const wc = webContents.fromId(wcId)
+    const page = cast.pageApp(wcId)
+    if (!wc || !page) throw new Error('Die Seite bietet keine Cast-App an.')
+    const conn = await cast.startApp(deviceId, page.appIds, wc, page.origin)
+    wc.send('castp:event', { type: 'connectionavailable', ...conn })
+  })()))
+  // Spiegelung: die Oberfläche nimmt Tab bzw. Bildschirm per getDisplayMedia auf (siehe setupCastCapture)
+  ipcMain.handle('cast:mirror-prepare', (_e, kind, wcId, audioOnly) => {
+    pendingCapture = { kind, wcId, at: Date.now() }
+    return { token: cast.createLive(audioOnly) }
   })
-  ipcMain.on('cast:control', (_e, action, value) => cast.control(action, value))
+  ipcMain.on('cast:mirror-data', (_e, token, data) => cast.pushLive(token, Buffer.from(data)))
+  ipcMain.on('cast:mirror-end', (_e, token) => cast.endLive(token))
+  ipcMain.handle('cast:mirror-start', (_e, deviceId, opts) => result(cast.mirror(deviceId, opts)))
+
+  // Cast-Apps von Webseiten (Presentation API, siehe tab-preload.js)
+  const originOf = wc => { try { return new URL(wc.getURL()).origin } catch { return '' } }
+  ipcMain.handle('castp:start', async (e, urls) => {
+    const appIds = CastManager.appIdsFromUrls(urls)
+    if (!appIds.length) return { error: 'NotSupportedError', message: 'Nur Cast-Apps werden unterstützt.' }
+    let deviceId = null
+    try {
+      deviceId = await uiRequest('cast:pick', { wcId: e.sender.id, appIds, origin: originOf(e.sender) }, 300000)
+    } catch {}
+    if (!deviceId) return { error: 'AbortError', message: 'Abgebrochen' }
+    try {
+      return await cast.startApp(deviceId, appIds, e.sender, originOf(e.sender))
+    } catch (err) {
+      send('cast:error', err.message)
+      return { error: 'OperationError', message: err.message }
+    }
+  })
+  ipcMain.handle('castp:reconnect', (e, urls, id) => cast.reconnectPage(e.sender, urls, id, originOf(e.sender)))
+  ipcMain.handle('castp:availability', e => {
+    cast.watchAvailability(e.sender)
+    return cast.hasDevices()
+  })
+  ipcMain.on('castp:default', (e, urls) => cast.setPageApp(e.sender, urls, originOf(e.sender)))
+  ipcMain.on('castp:send', (_e, connId, data) => cast.pageMessage(connId, data))
+  ipcMain.on('castp:close', (_e, connId) => cast.pageClose(connId))
+  ipcMain.on('castp:terminate', (_e, connId) => cast.pageTerminate(connId))
   ipcMain.handle('cast:pick-file', async () => {
     const res = await dialog.showOpenDialog(win, {
       title: 'Datei zum Streamen auswählen',
@@ -815,6 +862,14 @@ function registerIpc () {
     downloads: app.getPath('downloads')
   }))
 
+  // Favoriten von der Neuer-Tab-Seite aus ändern – die Oberfläche verwaltet die Liste und speichert sie
+  ipcMain.handle('ntp:bookmark', (e, op, data) => {
+    if (!e.senderFrame?.url?.startsWith('caravel://newtab')) return false
+    if (!['add', 'update', 'remove', 'move'].includes(op)) return false
+    send('ntp:bookmark', { op, data })
+    return true
+  })
+
   // Neuer-Tab-Seite (nur für caravel://-Seiten)
   ipcMain.handle('ntp:data', e => {
     if (!e.senderFrame?.url?.startsWith('caravel://')) return null
@@ -836,7 +891,7 @@ function registerIpc () {
       searchEngine: s.searchEngine,
       accent: uiAccent,
       theme: s.theme,
-      bookmarks: store.get('bookmarks').slice(0, 12),
+      bookmarks: store.get('bookmarks').filter(b => !b.folder).map(({ id, url, title, favicon }) => ({ id, url, title, favicon })),
       topSites,
       stats: { blocked: store.get('stats').blocked + (adblock?.blockedTotal || 0) },
       focusStats: store.get('focusStats'),
@@ -877,6 +932,36 @@ function writeCodexConfig (s) {
   text = (text ? text + '\n\n' : '') + codexSection(s)
   fs.mkdirSync(path.dirname(CODEX_CONFIG), { recursive: true })
   fs.writeFileSync(CODEX_CONFIG, text)
+}
+
+// Offene Neuer-Tab-Seiten zeigen geänderte Favoriten sofort an
+function notifyNewtabPages () {
+  for (const wc of webContents.getAllWebContents()) {
+    try { if (wc.getURL().startsWith('caravel://newtab')) wc.send('ntp:changed') } catch {}
+  }
+}
+
+// Chromecast-Spiegelung: getDisplayMedia der Oberfläche liefert den gewählten Tab (Bild und Ton)
+// oder den ganzen Bildschirm mit Systemton – ohne Auswahldialog, die Quelle wurde im Cast-Dialog gewählt.
+function setupCastCapture () {
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    const p = pendingCapture
+    pendingCapture = null
+    const fromUi = request.frame && win && request.frame === win.webContents.mainFrame
+    if (!p || !fromUi || Date.now() - p.at > 15000) return callback({})
+    try {
+      if (p.kind === 'tab') {
+        const wc = webContents.fromId(p.wcId)
+        if (!wc || wc.isDestroyed()) return callback({})
+        return callback({ video: wc.mainFrame, audio: wc.mainFrame })
+      }
+      const [screen] = await desktopCapturer.getSources({ types: ['screen'] })
+      callback(screen ? { video: screen, audio: 'loopback' } : {})
+    } catch (err) {
+      console.warn('[cast] Aufnahme', err)
+      callback({})
+    }
+  })
 }
 
 // Claude Code / Codex: eingebauter MCP-Server
@@ -975,16 +1060,19 @@ app.whenReady().then(async () => {
 
   focusGuard = new FocusGuard(url => `caravel://blocked/?url=${encodeURIComponent(url)}`)
   cast = new CastManager(send)
+  cast.discovery.start() // wie Chrome: Geräte im Hintergrund suchen, damit Cast-Knöpfe sofort erscheinen
+  setupCastCapture()
   vpn = new VpnManager({ session: tabsSession, dataDir: app.getPath('userData'), vendorDir: VENDOR_DIR })
   vpn.on('state', state => send('vpn:state', state))
   adblock = new AdBlock(path.join(app.getPath('userData'), 'AdBlock'), tabsSession)
   adblock.onBlocked = (wcId, count, total) => send('adblock:blocked', { wcId, count, total })
-  if (process.env.CARAVEL_DEBUG) globalThis.__debug = { adblock, vpn, get crx () { return crx }, get extensions () { return extensions } }
+  if (process.env.CARAVEL_DEBUG) globalThis.__debug = { adblock, vpn, cast, get crx () { return crx }, get extensions () { return extensions } }
 
   // Seitenwechsel setzt den Zähler blockierter Anfragen zurück
   app.on('web-contents-created', (_e, wc) => {
     wc.on('did-start-navigation', details => {
       if (details.isMainFrame && !details.isSameDocument) {
+        cast.setPageApp(wc, null)
         adblock.resetTab(wc.id)
         send('adblock:blocked', { wcId: wc.id, count: 0, total: adblock.blockedTotal })
       }
