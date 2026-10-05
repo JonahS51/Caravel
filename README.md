@@ -13,7 +13,7 @@ eingebautem VPN, Chrome-Erweiterungen und Chromecast.
 
 ## Installation
 
-`dist/Caravel-Setup-3.1.0.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
+`dist/Caravel-Setup-3.2.0.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
 registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installierte Programm braucht kein Node.js.
 
 ## Funktionen
@@ -139,7 +139,7 @@ a built-in VPN, Chrome extensions and Chromecast.
 
 ## Installation
 
-Run `dist/Caravel-Setup-3.1.0.exe`. The installer asks for the target folder, creates shortcuts and registers
+Run `dist/Caravel-Setup-3.2.0.exe`. The installer asks for the target folder, creates shortcuts and registers
 Caravel as a browser in Windows “Default apps”. The installed program does not need Node.js.
 
 ## Features

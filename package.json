@@ -1,7 +1,7 @@
 {
   "name": "caravel-browser",
   "productName": "Caravel",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Caravel – ein Chromium-Browser mit Claude-Integration, Werbeblocker (uBlock-Origin-Filter), eingebautem VPN, Spaces, Split View, Peek und Chromecast.",
   "main": "src/main/main.js",
   "author": "Caravel Project",
