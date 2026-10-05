@@ -2,19 +2,19 @@
 
 Caravel ist ein Electron-Browser (Electron 44 / Chromium 152) für Windows. Sprache des Projekts und der Antworten:
 Deutsch (Oberfläche, Kommentare, Commit-Nachrichten). Der Ordner heißt noch `aether-browser` (früherer Name).
-GitHub: https://github.com/JonahS51/Caravel (privat, Branch `main`).
+GitHub: https://github.com/JonahS51/Caravel (öffentlich, Branch `main`).
 
 ## Befehle
 
 ```powershell
 npm start          # Browser mit dem normalen Profil starten (%APPDATA%\Caravel)
 npm run dist       # Installer bauen → dist\Caravel-Setup-<version>.exe (lädt Tor/wireproxy, erzeugt Symbole)
-npm run release    # wie dist + Upload als Release nach JonahS51/Caravel-Releases (braucht $env:GH_TOKEN)
+npm run release    # wie dist + Upload als Release nach JonahS51/Caravel (braucht $env:GH_TOKEN)
 node --check <datei>   # schnelle Syntaxprüfung (es gibt keine Testsuite)
 ```
 
-Updates: Installierte Versionen holen neue Versionen per electron-updater aus dem **öffentlichen** Repo
-`JonahS51/Caravel-Releases` (`build.publish` in package.json; Code-Repo bleibt privat). Ein Release braucht
+Updates: Installierte Versionen holen neue Versionen per electron-updater aus den Releases von
+`JonahS51/Caravel` (`build.publish` in package.json; das Repo muss dafür öffentlich sein). Ein Release braucht
 `Caravel-Setup-<v>.exe`, `.blockmap` und `latest.yml`. Nur nach Rückfrage veröffentlichen.
 
 Git ist unter `C:\Program Files\Git\cmd` installiert (evtl. nicht im PATH der Konsole). Push funktioniert über den

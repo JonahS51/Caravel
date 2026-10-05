@@ -80,11 +80,11 @@ npm run release    # wie dist, lädt Installer + latest.yml als Release nach Git
 
 ### Updates veröffentlichen
 
-Der Quellcode liegt privat, die Installer in einem **öffentlichen** Repo `JonahS51/Caravel-Releases`
+Die Installer werden als Releases dieses öffentlichen Repos `JonahS51/Caravel` veröffentlicht
 (siehe `build.publish` in `package.json`). Ablauf für eine neue Version:
 
 1. Version in `package.json` erhöhen (z. B. 3.2.0).
-2. `$env:GH_TOKEN = '<Token mit Schreibrecht auf Caravel-Releases>'; npm run release`
+2. `$env:GH_TOKEN = '<Token mit Schreibrecht auf Caravel>'; npm run release`
    – electron-builder lädt `Caravel-Setup-<version>.exe`, die `.blockmap` und `latest.yml` als Release-Entwurf hoch.
 3. Den Entwurf auf GitHub veröffentlichen. Installierte Versionen finden das Update beim nächsten Start
    (bzw. spätestens nach 4 Stunden) und installieren es beim Beenden.
@@ -206,11 +206,11 @@ npm run release    # like dist, uploads the installer + latest.yml as a GitHub r
 
 ### Publishing updates
 
-The source code is private; the installers live in a **public** repository `JonahS51/Caravel-Releases`
+The installers are published as releases of this public repository `JonahS51/Caravel`
 (see `build.publish` in `package.json`). Steps for a new version:
 
 1. Increase the version in `package.json` (e.g. 3.2.0).
-2. `$env:GH_TOKEN = '<token with write access to Caravel-Releases>'; npm run release`
+2. `$env:GH_TOKEN = '<token with write access to Caravel>'; npm run release`
    – electron-builder uploads `Caravel-Setup-<version>.exe`, the `.blockmap` and `latest.yml` as a draft release.
 3. Publish the draft on GitHub. Installed versions find the update on their next start
    (or after 4 hours at the latest) and install it when you quit.
