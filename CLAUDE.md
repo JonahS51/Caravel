@@ -85,6 +85,8 @@ PowerShell-Fenster ohne `GCM_INTERACTIVE`/`GIT_TERMINAL_PROMPT` laufen.
 - Nutzt das Tab-Layout **Safari** mit Favoritenleiste.
 - Node.js wird für die Builds gebraucht – nicht deinstallieren, ohne zu fragen.
 - Der Installer ist nicht signiert; Lizenz GPL-3.0 (wegen `electron-chrome-extensions`).
+- Installer zweisprachig (Englisch/Deutsch, nach Windows-Sprache). Lizenztexte in `build/license_de.txt` und
+  `build/license_en.txt` (UTF-8 **mit BOM**, sonst zeigt NSIS die Umlaute falsch); keine `nsis.license`-Option setzen.
 
 ## Testen ohne Klicks (Erfahrungen)
 

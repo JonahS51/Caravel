@@ -1,5 +1,4 @@
-Caravel – Entdecke das Web
-Version 2.0.0
+﻿Caravel – Entdecke das Web
 
 Copyright (C) 2026 Caravel Project
 

@@ -74,7 +74,6 @@
       "installerHeaderIcon": "build/icon.ico",
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/installerSidebar.bmp",
-      "license": "build/license.txt",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Caravel",
@@ -82,6 +81,7 @@
       "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh",
       "installerLanguages": [
+        "en_US",
         "de_DE"
       ],
       "language": "1031",

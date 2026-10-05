@@ -1,4 +1,4 @@
-; Caravel – zusätzliche Installer-Schritte
+﻿; Caravel – zusätzliche Installer-Schritte
 ; Registriert Caravel als Webbrowser, damit er in „Standard-Apps“ von Windows auswählbar ist.
 
 !define CARAVEL_CAPS "Software\Clients\StartMenuInternet\Caravel\Capabilities"
@@ -10,7 +10,11 @@
 
   WriteRegStr SHCTX "${CARAVEL_CAPS}" "ApplicationName" "Caravel"
   WriteRegStr SHCTX "${CARAVEL_CAPS}" "ApplicationIcon" "$INSTDIR\Caravel.exe,0"
-  WriteRegStr SHCTX "${CARAVEL_CAPS}" "ApplicationDescription" "Caravel – Browser mit Claude-Integration, Werbeblocker und VPN."
+  ; Beschreibung in der Sprache des Installers (1031 = Deutsch, sonst Englisch)
+  StrCmp $LANGUAGE 1031 0 +3
+    WriteRegStr SHCTX "${CARAVEL_CAPS}" "ApplicationDescription" "Caravel – Browser mit Claude-Integration, Werbeblocker und VPN."
+    Goto +2
+    WriteRegStr SHCTX "${CARAVEL_CAPS}" "ApplicationDescription" "Caravel – browser with Claude integration, ad blocker and VPN."
   WriteRegStr SHCTX "${CARAVEL_CAPS}\StartMenu" "StartMenuInternet" "Caravel"
   WriteRegStr SHCTX "${CARAVEL_CAPS}\URLAssociations" "http" "CaravelURL"
   WriteRegStr SHCTX "${CARAVEL_CAPS}\URLAssociations" "https" "CaravelURL"

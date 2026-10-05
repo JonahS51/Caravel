@@ -1,0 +1,39 @@
+﻿Caravel – Explore the Web
+
+Copyright (C) 2026 Caravel Project
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+Public License for more details:
+https://www.gnu.org/licenses/gpl-3.0.html
+
+------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------
+
+- Electron / Chromium (MIT and BSD licenses)
+- electron-chrome-extensions (GPL-3.0) – support for Chrome extensions
+- electron-chrome-web-store (MIT) – installing from the Chrome Web Store
+- @ghostery/adblocker (MPL-2.0) – filter engine of the ad blocker
+- uBlock Origin filter lists (GPL-3.0) and EasyList (GPL-3.0 / CC BY-SA 3.0),
+  downloaded at runtime from the official servers
+- Tor (BSD-3-Clause) – free VPN mode
+- wireproxy (ISC) – WireGuard support
+- castv2, multicast-dns (MIT) – Cast protocol and device discovery for Chromecast
+- Mozilla Readability (Apache-2.0), Turndown (MIT) – reader mode and Markdown
+
+------------------------------------------------------------------------
+Notices
+------------------------------------------------------------------------
+
+Caravel is an independent project and is not affiliated with Anthropic,
+Google or the Tor Project. "Claude" is a trademark of Anthropic; "Chrome",
+"Chromecast" and "Chrome Web Store" are trademarks of Google LLC. Tor mode
+hides your IP address but does not provide the full anonymity protection
+of Tor Browser.
