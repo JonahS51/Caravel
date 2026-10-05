@@ -4,3 +4,6 @@ vendor/
 *.log
 .DS_Store
 Thumbs.db
+
+# Lokale Hinweise für Claude, nicht veröffentlichen
+CLAUDE.md
