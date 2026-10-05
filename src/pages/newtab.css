@@ -146,3 +146,7 @@
 .b.ghost { background: var(--glass); color: var(--text); border-color: var(--border); }
 .b.danger { color: #f87171; }
 .b[hidden] { display: none; }
+/* Privater Space */
+html.private { --accent: #a78bfa; }
+html.private .aurora { filter: saturate(.7) brightness(.85); }
+html.private #stats .chip { max-width: 640px; white-space: normal; line-height: 1.5; text-align: left; }

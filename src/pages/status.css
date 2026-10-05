@@ -25,6 +25,10 @@ h1 { font: 650 26px/1.2 var(--display); margin: 0 0 10px; letter-spacing: -.01em
 p { color: var(--text-2); margin: 0 0 8px; line-height: 1.6; }
 .url { font: 13px "Cascadia Code", Consolas, monospace; color: var(--text-3); word-break: break-all; margin: 14px 0 24px; padding: 10px 12px; border-radius: 10px; background: var(--glass); border: 1px solid var(--border); }
 .code { font-size: 12px; color: var(--text-3); margin-top: 18px; }
+.unsafe { margin-top: 14px; font-size: 13px; color: var(--text-3); }
+.unsafe summary { cursor: pointer; }
+.unsafe p { font-size: 13px; margin: 8px 0; }
+.unsafe .link { color: #f87171; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .breathe { width: 120px; height: 120px; margin: 0 auto 26px; position: relative; }
 .breathe span { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); animation: breathe 5s ease-in-out infinite; }

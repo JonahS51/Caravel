@@ -11,6 +11,7 @@ const $ = (s, r = document) => r.querySelector(s)
 const $$ = (s, r = document) => [...r.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const PARTITION = 'persist:caravel'
+const PRIVATE_PARTITION = 'caravel-private' // privater Space: flüchtige Sitzung (siehe main.js)
 const NEWTAB = 'caravel://newtab/'
 
 const SEARCH_ENGINES = {
@@ -45,7 +46,9 @@ const S = {
   reader: null,
   windowFull: false,
   perms: [],
-  popover: null
+  popover: null,
+  certOverrides: new Set(), // Hosts, deren ungültiges Zertifikat der Nutzer zugelassen hat
+  update: null
 }
 let tabSeq = 0
 const settings = () => S.data.settings
@@ -91,7 +94,9 @@ function faviconEl (favicon, url, size = 16) {
     s.firstChild.style.width = s.firstChild.style.height = size + 'px'
     return s
   }
-  let src = favicon
+  // Nur Web- und Daten-URLs: ein Favicon wie file://server/freigabe/x.ico ließe Windows sonst eine
+  // SMB-Verbindung aufbauen (die Oberfläche ist selbst ein file://-Dokument). Gilt auch für alte Einträge.
+  let src = safeFavicon(favicon)
   if (!src && /^https?:/.test(url || '')) {
     try { src = new URL(url).origin + '/favicon.ico' } catch {}
   }
@@ -101,6 +106,10 @@ function faviconEl (favicon, url, size = 16) {
   img.src = src
   img.onerror = () => img.replaceWith(letterEl(host || url, size))
   return img
+}
+
+function safeFavicon (src) {
+  return typeof src === 'string' && /^(https?:|data:image\/)/i.test(src) ? src : null
 }
 
 function faviconHtml (favicon, url) {
@@ -151,7 +160,9 @@ function toUrl (text) {
   const t = text.trim()
   if (!t) return null
   if (/^javascript:/i.test(t)) return null
-  if (/^[a-z][\w+.-]*:\/\//i.test(t) || /^(about|view-source|data|mailto):/i.test(t)) return t
+  // view-source: funktioniert in Electron-Webviews nicht → eigene Quelltext-Seite
+  if (/^view-source:/i.test(t)) return sourceUrl(t.slice(12))
+  if (/^[a-z][\w+.-]*:\/\//i.test(t) || /^(about|data|mailto):/i.test(t)) return t
   if (/^localhost(:\d+)?(\/|$)/i.test(t) || /^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(t)) return 'http://' + t
   if (!/\s/.test(t) && /^[^\s/?#]+\.[a-z]{2,}(:\d+)?([/?#].*)?$/i.test(t)) return 'https://' + t
   return searchUrl(t)
@@ -166,8 +177,13 @@ function isNewtab (url) {
   return !url || url.startsWith(NEWTAB) || (S.newtabOverride && url.startsWith(S.newtabOverride))
 }
 
+const sourceUrl = url => 'caravel://source/?url=' + encodeURIComponent(url)
+
 function displayUrl (url) {
   if (!url || isNewtab(url)) return ''
+  if (url.startsWith('caravel://source')) {
+    try { return 'view-source:' + new URL(url).searchParams.get('url') } catch { return url }
+  }
   if (/^caravel:\/\/(error|blocked)/.test(url)) {
     try { return new URL(url).searchParams.get('url') || url } catch { return url }
   }
@@ -188,11 +204,16 @@ const space = id => S.spaces.find(s => s.id === id)
 const curSpace = () => space(S.activeSpace)
 const getTab = id => S.tabs.get(id)
 const activeTab = () => getTab(curSpace()?.activeId)
-const tabByWc = wcId => [...S.tabs.values()].find(t => t.wcId === wcId)
+// t.wcId steht erst nach dom-ready fest – Tabs, die nie eine Seite anzeigen (z. B. nur ein Download),
+// werden deshalb auch über ihre Webview gefunden
+const tabByWc = wcId => [...S.tabs.values()].find(t => t.wcId === wcId) ||
+  [...S.tabs.values()].find(t => { try { return !!t.webview && t.webview.getWebContentsId() === wcId } catch { return false } })
 const spaceTabs = sp => sp.tabIds.map(getTab).filter(Boolean)
 
-function createTab ({ url = null, spaceId = S.activeSpace, background = false, pinned = false, sleeping = false, title, favicon, afterId, silent = false } = {}) {
+function createTab ({ url = null, spaceId = S.activeSpace, background = false, pinned = false, sleeping = false, title, favicon, afterId, silent = false, nav = null } = {}) {
   const sp = space(spaceId) || curSpace()
+  // view-source: (z. B. aus älteren Sitzungen) lädt in Electron-Webviews nie fertig → eigene Quelltext-Seite
+  if (url && /^view-source:/i.test(url)) { url = sourceUrl(url.slice(12)); nav = null }
   const tab = {
     id: 't' + (++tabSeq),
     spaceId: sp.id,
@@ -211,6 +232,9 @@ function createTab ({ url = null, spaceId = S.activeSpace, background = false, p
     themeColor: null,
     blocked: 0,
     zoom: 0,
+    nav, // gespeicherter Vor/Zurück-Verlauf { index, entries } – wird beim Aufwecken wiederhergestellt
+    blockedPopups: [],
+    lang: '',
     lastActive: Date.now(),
     el: null
   }
@@ -237,12 +261,32 @@ function resolveLoadUrl (url) {
   return url
 }
 
-function wake (tab) {
-  if (tab.webview) return
+const isPrivateTab = tab => !!space(tab.spaceId)?.private
+const partitionOf = tab => isPrivateTab(tab) ? PRIVATE_PARTITION : PARTITION
+
+async function wake (tab) {
+  if (tab.webview || tab.waking) return
+  const nav = tab.nav
+  tab.nav = null
+  // Verlauf samt Scrollposition wiederherstellen statt die Seite neu zu öffnen: der Hauptprozess
+  // hinterlegt ihn und fängt die Startadresse (Marke) beim Anlegen der Webview ab
+  let src = resolveLoadUrl(tab.url)
+  if (nav?.entries?.length) {
+    const urlBefore = tab.url
+    tab.waking = true
+    try {
+      const token = await A.invoke('tab:prepare-restore', nav)
+      // inzwischen eine andere Adresse geöffnet (loadInTab)? Dann die laden statt des alten Verlaufs
+      if (token && tab.url === urlBefore) src = 'about:blank#caravel-restore=' + token
+      else src = resolveLoadUrl(tab.url)
+    } catch {}
+    tab.waking = false
+    if (tab.webview || !S.tabs.has(tab.id)) return
+  }
   const wv = document.createElement('webview')
-  wv.setAttribute('partition', PARTITION)
+  wv.setAttribute('partition', partitionOf(tab))
   wv.setAttribute('allowpopups', '')
-  wv.setAttribute('src', resolveLoadUrl(tab.url))
+  wv.setAttribute('src', src)
   wv.dataset.tab = tab.id
   tab.webview = wv
   tab.sleeping = false
@@ -250,10 +294,15 @@ function wake (tab) {
   bindWebview(tab, wv)
   $('#views').append(wv)
   updateTabEl(tab)
+  if (nav && isVisible(tab)) layout() // nach dem asynchronen Aufwecken sichtbar machen
 }
 
-function sleepTab (tab) {
+async function sleepTab (tab) {
   if (!tab.webview || isVisible(tab)) return
+  if (tab.wcId) {
+    try { tab.nav = (await A.invoke('tab:history', [tab.wcId]))[tab.wcId] || null } catch {}
+    if (!tab.webview || isVisible(tab)) return // inzwischen wieder sichtbar geworden
+  }
   tab.webview.remove()
   tab.webview = null
   tab.wcId = null
@@ -267,6 +316,7 @@ function sleepTab (tab) {
 function loadInTab (tab, url) {
   if (!url) return
   tab.url = url
+  tab.nav = null
   if (!tab.webview) return wake(tab)
   if (!tab.ready) tab.webview.setAttribute('src', resolveLoadUrl(url))
   else tab.webview.loadURL(resolveLoadUrl(url)).catch(() => {})
@@ -279,7 +329,7 @@ function bindWebview (tab, wv) {
     tab.ready = true
     tab.wcId = wv.getWebContentsId()
     if (first) {
-      if (tab.zoom) wv.setZoomLevel(tab.zoom)
+      applySiteSettings(tab)
       if (tab.muted) wv.setAudioMuted(true)
       tab.readyWaiters.splice(0).forEach(r => r(tab))
       if (isActive()) A.send('tab:activated', tab.wcId)
@@ -308,19 +358,24 @@ function bindWebview (tab, wv) {
   wv.addEventListener('did-navigate', e => {
     tab.blocked = 0
     tab.themeColor = null
+    tab.blockedPopups = []
+    tab.lang = ''
     onNav(e.url)
+    if (tab.ready) applySiteSettings(tab)
+    if (isActive()) { updatePopupButton(); updateTranslateButton() }
   })
   wv.addEventListener('did-navigate-in-page', e => { if (e.isMainFrame) onNav(e.url) })
   wv.addEventListener('page-title-updated', e => {
     tab.title = e.title
-    const h = S.data.history[0]
-    if (h && h.url === tab.url) { h.title = e.title; save('history') }
+    // Titel im Verlauf nachtragen – nicht nur ganz oben suchen, andere Tabs können dazwischen geladen haben
+    const h = isPrivateTab(tab) ? null : S.data.history.slice(0, 30).find(x => x.url === tab.url)
+    if (h && h.title !== e.title) { h.title = e.title; save('history') }
     updateTabEl(tab)
     if (isActive()) document.title = `${e.title} – Caravel`
     saveSession()
   })
   wv.addEventListener('page-favicon-updated', e => {
-    tab.favicon = e.favicons?.[0] || null
+    tab.favicon = (e.favicons || []).map(safeFavicon).find(Boolean) || null
     updateTabEl(tab)
     refreshBookmarkFavicon(tab)
     saveSession()
@@ -335,13 +390,15 @@ function bindWebview (tab, wv) {
     const target = `caravel://error/?code=crash&desc=${encodeURIComponent(T('Die Seite ist abgestürzt'))}&url=${encodeURIComponent(tab.url)}`
     setTimeout(() => wv.loadURL(target).catch(() => {}), 50)
   })
-  wv.addEventListener('media-started-playing', () => { tab.audible = true; updateTabEl(tab) })
-  wv.addEventListener('media-paused', () => { tab.audible = false; updateTabEl(tab) })
   wv.addEventListener('ipc-message', e => {
     if (e.channel === 'peek') openPeek(e.args[0])
     if (e.channel === 'theme-color') {
       tab.themeColor = e.args[0]
       if (isActive()) updateAmbient()
+    }
+    if (e.channel === 'page-lang') {
+      tab.lang = String(e.args[0] || '')
+      if (isActive()) updateTranslateButton()
     }
   })
   wv.addEventListener('enter-html-full-screen', () => document.body.classList.add('html-fullscreen'))
@@ -408,11 +465,17 @@ function closeTab (id) {
   if (!tab) return
   const sp = space(tab.spaceId)
   const idx = sp.tabIds.indexOf(id)
-  if (!isNewtab(tab.url)) {
-    S.closed.push({ url: tab.url, title: tab.title, favicon: tab.favicon, spaceId: sp.id })
+  if (!isNewtab(tab.url) && !sp.private) {
+    S.closed.push({ url: tab.url, title: tab.title, favicon: tab.favicon, spaceId: sp.id, nav: tab.nav || tab.navCache })
     if (S.closed.length > 25) S.closed.shift()
   }
   sp.tabIds.splice(idx, 1)
+  // Letzter privater Tab geschlossen: privaten Space auflösen und seine Daten löschen (wie Chromes Inkognito)
+  if (sp.private && !sp.tabIds.length) {
+    tab.webview?.remove()
+    S.tabs.delete(id)
+    return closePrivateSpace()
+  }
   if (sp.split && (sp.split.left === id || sp.split.right === id)) {
     const other = sp.split.left === id ? sp.split.right : sp.split.left
     sp.split = null
@@ -436,11 +499,50 @@ function closeTab (id) {
 function reopenClosed () {
   const t = S.closed.pop()
   if (!t) return
-  createTab({ url: t.url, title: t.title, favicon: t.favicon, spaceId: space(t.spaceId) ? t.spaceId : S.activeSpace })
+  createTab({ url: t.url, title: t.title, favicon: t.favicon, spaceId: space(t.spaceId) ? t.spaceId : S.activeSpace, nav: t.nav })
 }
 
-function duplicateTab (tab) {
-  createTab({ url: tab.url, title: tab.title, favicon: tab.favicon, spaceId: tab.spaceId, afterId: tab.id })
+// Duplizieren übernimmt wie in Chrome den Vor/Zurück-Verlauf
+async function duplicateTab (tab) {
+  let nav = tab.nav
+  if (tab.wcId) { try { nav = (await A.invoke('tab:history', [tab.wcId]))[tab.wcId] || nav } catch {} }
+  createTab({ url: tab.url, title: tab.title, favicon: tab.favicon, spaceId: tab.spaceId, afterId: tab.id, nav })
+}
+
+/* ---------------------------------------------------------------------
+   Privater Space (Inkognito): eigene flüchtige Sitzung, kein Verlauf, wird nicht gespeichert
+   --------------------------------------------------------------------- */
+
+const privateSpace = () => S.spaces.find(s => s.private)
+// Links von außen (andere Programme, Erweiterungen, KI-Agenten) landen wie in Chrome nie im privaten Space
+const normalSpaceId = () => {
+  const sp = curSpace()
+  if (!sp?.private) return S.activeSpace
+  return space(sp.returnTo) ? sp.returnTo : S.spaces.find(s => !s.private).id
+}
+
+function openPrivate (url = null) {
+  let sp = privateSpace()
+  if (!sp) {
+    sp = { id: 'space-private', name: T('Privat'), color: '#8b5cf6', icon: '◐', private: true, tabIds: [], activeId: null, split: null, returnTo: S.activeSpace }
+    S.spaces.push(sp)
+    toast('Privater Space', 'Verlauf, Cookies und Website-Daten werden gelöscht, sobald du den letzten privaten Tab schließt.', 'incognito', { duration: 5000 })
+  }
+  if (url || !sp.tabIds.length) createTab({ url, spaceId: sp.id, background: true })
+  switchSpace(sp.id, { tabId: url ? sp.tabIds[sp.tabIds.length - 1] : sp.activeId || sp.tabIds[0] })
+  renderSpaces()
+}
+
+function closePrivateSpace () {
+  const sp = privateSpace()
+  if (!sp) return
+  for (const t of spaceTabs(sp)) { t.webview?.remove(); S.tabs.delete(t.id) }
+  S.spaces = S.spaces.filter(s => s !== sp)
+  S.closed = S.closed.filter(c => c.spaceId !== sp.id)
+  if (S.activeSpace === sp.id) switchSpace(space(sp.returnTo) ? sp.returnTo : S.spaces[0].id)
+  renderSpaces()
+  A.invoke('private:clear').catch(() => {})
+  toast('Privater Space geschlossen', 'Verlauf und Website-Daten wurden gelöscht.', 'incognito')
 }
 
 function togglePin (tab) {
@@ -467,6 +569,8 @@ function moveTabToSpace (tab, spaceId) {
   const from = space(tab.spaceId)
   const to = space(spaceId)
   if (!to || from === to) return
+  // Unterschiedliche Sitzungen (Cookies, Anmeldungen) – privat und normal lassen sich nicht mischen
+  if (!!from.private !== !!to.private) return toast('Nicht möglich', 'Tabs lassen sich nicht zwischen dem privaten Space und anderen Spaces verschieben.', 'incognito')
   from.tabIds.splice(from.tabIds.indexOf(tab.id), 1)
   if (from.split && (from.split.left === tab.id || from.split.right === tab.id)) from.split = null
   if (from.activeId === tab.id) {
@@ -491,24 +595,38 @@ function saveSession () {
   saveSession.t = setTimeout(writeSession, 600)
 }
 
-function writeSession () {
+// Speichert sofort mit dem zuletzt bekannten Vor/Zurück-Verlauf und holt ihn danach für wache Tabs
+// frisch (asynchron) – beim Beenden (flushPending) zählt der sofort geschriebene Stand.
+function writeSession ({ refresh = true } = {}) {
   saveSession.t = null
-  S.data.spaces = S.spaces.map(sp => ({
+  const sp0 = curSpace()
+  S.data.spaces = S.spaces.filter(sp => !sp.private).map(sp => ({
     id: sp.id,
     name: sp.name,
     color: sp.color,
     icon: sp.icon,
     activeIndex: Math.max(0, sp.tabIds.indexOf(sp.activeId)),
-    tabs: spaceTabs(sp).map(t => ({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned }))
+    tabs: spaceTabs(sp).map(t => ({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, nav: t.nav || t.navCache || undefined }))
   }))
-  S.data.activeSpace = S.activeSpace
+  S.data.activeSpace = sp0?.private ? (space(sp0.returnTo) ? sp0.returnTo : S.data.spaces[0]?.id) : S.activeSpace
   A.send('store:set', 'spaces', S.data.spaces)
-  A.send('store:set', 'activeSpace', S.activeSpace)
+  A.send('store:set', 'activeSpace', S.data.activeSpace)
+  if (!refresh) return
+  const awake = [...S.tabs.values()].filter(t => t.wcId && !isPrivateTab(t))
+  if (!awake.length) return
+  A.invoke('tab:history', awake.map(t => t.wcId)).then(map => {
+    let changed = false
+    for (const t of awake) {
+      const nav = map[t.wcId]
+      if (nav && JSON.stringify(nav) !== JSON.stringify(t.navCache)) { t.navCache = nav; changed = true }
+    }
+    if (changed && !saveSession.t) writeSession({ refresh: false })
+  }).catch(() => {})
 }
 
 function recordHistory (tab) {
   const url = tab.url
-  if (!/^(https?|file):/.test(url)) return
+  if (!/^(https?|file):/.test(url) || isPrivateTab(tab)) return
   const h = S.data.history
   if (h[0]?.url === url) {
     h[0].time = Date.now()
@@ -552,6 +670,7 @@ function applyAccent () {
   const sp = curSpace()
   const color = sp?.color || '#f2545b'
   document.documentElement.style.setProperty('--accent', color)
+  document.body.classList.toggle('private-space', !!sp?.private)
   $('#space-name').textContent = sp?.name || ''
   A.send('ui:accent', color)
   updateAmbient()
@@ -567,10 +686,11 @@ function addSpace ({ name, color, icon: ic }) {
 }
 
 function deleteSpace (sp) {
-  if (S.spaces.length <= 1) return toast('Nicht möglich', 'Mindestens ein Space wird benötigt.', 'info')
+  if (sp.private) return closePrivateSpace()
+  if (S.spaces.filter(s => !s.private).length <= 1) return toast('Nicht möglich', 'Mindestens ein Space wird benötigt.', 'info')
   for (const t of spaceTabs(sp)) { t.webview?.remove(); S.tabs.delete(t.id) }
   S.spaces = S.spaces.filter(s => s !== sp)
-  if (S.activeSpace === sp.id) switchSpace(S.spaces[0].id)
+  if (S.activeSpace === sp.id) switchSpace(S.spaces.find(s => !s.private).id)
   renderSpaces()
   saveSession()
 }
@@ -637,10 +757,10 @@ function layout () {
     if (!L.webview) wake(L)
     if (!R.webview) wake(R)
     const r = sp.split.ratio
-    L.webview.classList.add('visible', 'split-left')
-    L.webview.style.width = `calc(${r * 100}% - 4px)`
-    R.webview.classList.add('visible', 'split-right')
-    R.webview.style.width = `calc(${(1 - r) * 100}% - 4px)`
+    L.webview?.classList.add('visible', 'split-left')
+    if (L.webview) L.webview.style.width = `calc(${r * 100}% - 4px)`
+    R.webview?.classList.add('visible', 'split-right')
+    if (R.webview) R.webview.style.width = `calc(${(1 - r) * 100}% - 4px)`
     divider.hidden = false
     divider.style.left = `${r * 100}%`
     pane.hidden = false
@@ -972,6 +1092,8 @@ function updateTabEl (tab) {
   const fav = $('.fav-ico', el)
   fav.innerHTML = ''
   if (tab.loading) fav.innerHTML = '<span class="spinner"></span>'
+  // privater Space: keine Favicons über die (dauerhaft cachende) Sitzung der Oberfläche laden
+  else if (isPrivateTab(tab) && !/^data:/.test(tab.favicon || '') && !/^caravel:/.test(tab.url)) fav.append(letterEl(hostOf(tab.url) || tab.url))
   else fav.append(faviconEl(tab.favicon, tab.url))
   $('.title', el).textContent = tab.title || prettyUrl(tab.url) || T('Neuer Tab')
   el.title = `${tab.title}\n${displayUrl(tab.url) || T('Neuer Tab')}${tab.sleeping ? '\n💤 ' + T('Schläft – spart Arbeitsspeicher') : ''}`
@@ -993,8 +1115,11 @@ function updateTabEl (tab) {
 
 function tabMenu (e, tab) {
   const sp = space(tab.spaceId)
-  const others = S.spaces.filter(s => s !== sp)
+  const others = S.spaces.filter(s => s !== sp && !!s.private === !!sp.private)
+  const right = sp.tabIds.slice(sp.tabIds.indexOf(tab.id) + 1).map(getTab).filter(t => t && !t.pinned)
   const items = [
+    { label: 'Neuer Tab rechts', icon: 'plus', run: () => createTab({ spaceId: sp.id, afterId: tab.id }) },
+    '-',
     { label: 'Neu laden', icon: 'reload', run: () => { if (tab.ready) tab.webview.reload(); else activate(tab.id) } },
     { label: 'Duplizieren', icon: 'copy', run: () => duplicateTab(tab) },
     { label: tab.pinned ? 'Loslösen' : 'Anheften', icon: 'pin', run: () => togglePin(tab) },
@@ -1002,7 +1127,9 @@ function tabMenu (e, tab) {
     { label: 'Neben aktivem Tab (Split View)', icon: 'split', hint: 'Umschalt+Klick', run: () => splitWith(tab.id), hidden: tab.id === sp.activeId },
     { label: 'Schlafen legen', icon: 'zzz', run: () => sleepTab(tab), hidden: tab.sleeping || isVisible(tab) },
     ...(others.length ? ['-', ...others.map(o => ({ label: T('Nach „{name}“ verschieben', { name: o.name }), icon: 'layers', run: () => moveTabToSpace(tab, o.id) }))] : []),
+    { label: 'Alle Tabs als Favoriten speichern …', icon: 'star', run: () => bookmarkAllTabs(sp) },
     '-',
+    { label: 'Tabs rechts schließen', icon: 'x', hidden: !right.length, run: () => right.forEach(t => closeTab(t.id)) },
     { label: 'Andere Tabs schließen', icon: 'x', run: () => spaceTabs(sp).filter(t => t !== tab && !t.pinned).forEach(t => closeTab(t.id)) },
     { label: 'Tab schließen', icon: 'x', hint: 'Strg+W', danger: true, run: () => closeTab(tab.id) }
   ]
@@ -1014,12 +1141,16 @@ function renderSpaces () {
   box.innerHTML = ''
   S.spaces.forEach((sp, i) => {
     const b = document.createElement('button')
-    b.className = 'space-btn' + (sp.id === S.activeSpace ? ' active' : '')
+    b.className = 'space-btn' + (sp.id === S.activeSpace ? ' active' : '') + (sp.private ? ' private' : '')
     b.style.setProperty('--sc', sp.color)
-    b.textContent = sp.icon
-    b.title = `${sp.name} (Alt+${i + 1})`
+    if (sp.private) b.innerHTML = icon('incognito')
+    else b.textContent = sp.icon
+    b.title = sp.private ? `${T('Privater Space')} (${T('Strg+Umschalt+N')})` : `${sp.name} (Alt+${i + 1})`
     b.onclick = () => switchSpace(sp.id)
-    b.oncontextmenu = e => showMenu(e.clientX, e.clientY, [
+    b.oncontextmenu = e => sp.private ? showMenu(e.clientX, e.clientY, [
+      { label: 'Neuer privater Tab', icon: 'plus', run: () => createTab({ spaceId: sp.id }) },
+      { label: 'Privaten Space schließen', icon: 'x', danger: true, run: closePrivateSpace }
+    ]) : showMenu(e.clientX, e.clientY, [
       { label: 'Bearbeiten …', icon: 'settings', run: () => editSpaceDialog(sp) },
       { label: 'Zeitkapsel speichern', icon: 'archive', run: () => saveSnapshot(sp) },
       { label: 'Alle Tabs schlafen legen', icon: 'zzz', run: () => spaceTabs(sp).forEach(sleepTab) },
@@ -1047,7 +1178,7 @@ function renderSbTools () {
   const tools = [
     ['history', 'history', 'Verlauf (Strg+H)'],
     ['downloads', 'download', 'Downloads (Strg+J)'],
-    ['notes', 'note', 'Seiten-Notizen (Strg+Umschalt+N)'],
+    ['notes', 'note', 'Seiten-Notizen (Strg+Umschalt+U)'],
     ['snapshots', 'archive', 'Zeitkapseln'],
     ['extensions', 'puzzle', 'Erweiterungen (Strg+Umschalt+E)']
   ]
@@ -1168,6 +1299,8 @@ function updateNav () {
   $('#btn-reader').hidden = !t || isNewtab(t.url) || !/^https?:/.test(t.url)
   $('#btn-star').hidden = !t || isNewtab(t.url)
   $('#btn-adblock').hidden = !t || !/^https?:/.test(t.url)
+  updatePopupButton()
+  updateTranslateButton()
 }
 
 function updateOmnibox () {
@@ -1177,7 +1310,12 @@ function updateOmnibox () {
   const site = $('#omni-site')
   const url = t?.url || ''
   site.className = 'omni-site'
+  let host = ''
+  try { host = new URL(url).host } catch {}
+  site.classList.toggle('clickable', /^https?:/.test(url))
+  site.title = /^https?:/.test(url) ? T('Website-Informationen und -Einstellungen') : ''
   if (isNewtab(url) || url.startsWith('caravel:')) site.innerHTML = icon('search')
+  else if (url.startsWith('https:') && S.certOverrides.has(host)) site.innerHTML = `${icon('warning')}<span class="host-pill danger">${T('Nicht sicher')}</span>`
   else if (url.startsWith('https:')) { site.classList.add('secure'); site.innerHTML = icon('lock') }
   else if (url.startsWith('http:')) site.innerHTML = `${icon('warning')}<span class="host-pill">${T('Nicht sicher')}</span>`
   else if (url.startsWith('file:')) site.innerHTML = icon('file')
@@ -1204,11 +1342,13 @@ function updateAmbient () {
   const t = activeTab()
   const accent = curSpace()?.color || '#f2545b'
   let amb = accent
-  if (settings().ambient && t?.themeColor && !isNewtab(t.url) && !t.url.startsWith('caravel:')) amb = t.themeColor
+  const priv = !!curSpace()?.private
+  if (settings().ambient && !priv && t?.themeColor && !isNewtab(t.url) && !t.url.startsWith('caravel:')) amb = t.themeColor
   const dark = isDark()
   const base = toRgb(dark ? '#0a1022' : '#eef1f8')
   const ambRgb = toRgb(amb)
-  const toolbar = toHex(mixRgb(base, ambRgb, settings().ambient ? (dark ? 0.13 : 0.12) : 0))
+  // Privater Space: deutlich violett getönte Leiste, damit man ihn nie mit einem normalen verwechselt
+  const toolbar = toHex(mixRgb(base, ambRgb, priv ? 0.28 : settings().ambient ? (dark ? 0.13 : 0.12) : 0))
   const root = document.documentElement.style
   root.setProperty('--ambient', toHex(ambRgb))
   root.setProperty('--toolbar', toolbar)
@@ -1327,7 +1467,33 @@ function initOmnibox () {
     setTimeout(hide, 100)
     updateOmnibox()
   })
-  input.addEventListener('input', update)
+  // Inline-Autovervollständigung wie in Chrome: „git“ → „github.com“ (Rest markiert, Entf/Rücktaste verwirft ihn)
+  const inlineComplete = () => {
+    const typed = input.value
+    if (!typed || /\s/.test(typed) || input.selectionStart !== typed.length) return
+    const ql = typed.toLowerCase()
+    const strip = u => u.replace(/^https?:\/\/(www\.)?/i, '')
+    const counts = new Map()
+    const consider = (url, weight) => {
+      if (!/^https?:/i.test(url)) return
+      const s = strip(url)
+      if (!s.toLowerCase().startsWith(ql)) return
+      // ohne „/“ in der Eingabe nur bis zum Ende des Hostnamens ergänzen
+      const end = ql.includes('/') ? s.length : (s.indexOf('/') === -1 ? s.length : s.indexOf('/'))
+      const c = s.slice(0, Math.max(end, typed.length))
+      counts.set(c, (counts.get(c) || 0) + weight)
+    }
+    for (const b of bmFlat()) consider(b.url, 5)
+    for (const h of S.data.history.slice(0, 1500)) consider(h.url, 1)
+    const best = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)[0]?.[0]
+    if (!best || best.length <= typed.length) return
+    input.value = typed + best.slice(typed.length)
+    input.setSelectionRange(typed.length, input.value.length)
+  }
+  input.addEventListener('input', e => {
+    if (e.inputType === 'insertText' && !e.isComposing) inlineComplete() // nicht bei Einfügen oder IME-Eingabe
+    update()
+  })
   input.addEventListener('keydown', e => {
     if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); sel = (sel + 1) % items.length; renderSugg() }
     else if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); sel = (sel - 1 + items.length) % items.length; renderSugg() }
@@ -1408,6 +1574,18 @@ function addFolder (title) {
   S.data.bookmarks.push(f)
   saveBookmarks()
   return f
+}
+
+// Alle Tabs eines Spaces als Ordner in der Favoritenleiste ablegen (wie Chromes „Alle Tabs als Lesezeichen“)
+function bookmarkAllTabs (sp = curSpace()) {
+  const tabs = spaceTabs(sp).filter(t => /^(https?|file):/.test(t.url))
+  if (!tabs.length) return toast('Nichts zu speichern', 'In diesem Space sind keine Webseiten geöffnet.', 'star')
+  const f = addFolder(`${sp.name} · ${new Date().toLocaleDateString(I18N.locale)}`)
+  f.children.push(...tabs.map(t => ({ id: bmNewId(), url: t.url, title: t.title || hostOf(t.url), favicon: t.favicon })))
+  saveBookmarks()
+  toast('Als Favoriten gespeichert', T('{n} Tabs im Ordner „{name}“.', { n: tabs.length, name: f.title }), 'star', {
+    actions: [{ label: 'Umbenennen', run: () => editBookmarkDialog(f) }]
+  })
 }
 
 function removeBookmarkId (id) {
@@ -1644,7 +1822,13 @@ function showModal (html, { wide = false } = {}) {
   ov.hidden = false
   card.querySelectorAll('[data-close]').forEach(b => { b.onclick = closeModal })
 }
-function closeModal () { $('#modal').hidden = true; $('#modal-card').innerHTML = '' }
+function closeModal () {
+  $('#modal').hidden = true
+  $('#modal-card').innerHTML = ''
+  S.modalSection = null
+  // offene Geräteauswahl gilt als abgebrochen
+  if (S.devicePick) { A.send('ui:reply', S.devicePick.reqId, null); S.devicePick = null }
+}
 
 function confirmDialog (title, text, okLabel, onOk) {
   showModal(`<div class="modal-head"><h2>${esc(T(title))}</h2></div><div class="modal-body"><p class="muted" style="margin:0">${esc(T(text))}</p></div><div class="modal-foot"><button class="btn ghost" data-close>${T('Abbrechen')}</button><button class="btn danger" id="cf-ok">${esc(T(okLabel))}</button></div>`)
@@ -1685,6 +1869,7 @@ function appMenu () {
   const r = $('#btn-menu').getBoundingClientRect()
   showMenu(r.right - 260, r.bottom + 6, [
     { label: 'Neuer Tab', icon: 'plus', hint: 'Strg+T', run: () => createTab() },
+    { label: 'Privater Space', icon: 'incognito', hint: 'Strg+Umschalt+N', run: () => openPrivate() },
     { label: 'Neuer Space', icon: 'layers', run: () => editSpaceDialog(null) },
     { label: 'Befehlspalette', icon: 'command', hint: 'Strg+K', run: openPalette },
     '-',
@@ -1695,10 +1880,14 @@ function appMenu () {
     { label: 'Seiten-Notizen', icon: 'note', run: () => togglePanel('notes') },
     { label: 'Zeitkapseln', icon: 'archive', run: () => togglePanel('snapshots') },
     { label: 'Erweiterungen', icon: 'puzzle', run: () => togglePanel('extensions') },
+    { label: 'Passwörter', icon: 'key', run: () => openSettings('passwords') },
     '-',
     { label: 'Screenshot', icon: 'camera', hint: 'Strg+Umschalt+X', run: screenshot },
     { label: 'Streamen …', icon: 'cast', run: () => openCast() },
     { label: 'Auf Seite suchen', icon: 'search', hint: 'Strg+F', run: openFind },
+    { label: 'Übersetzen …', icon: 'translate', run: openTranslatePopover },
+    { label: 'Speichern unter …', icon: 'download', hint: 'Strg+S', run: savePage },
+    { label: 'Datei öffnen …', icon: 'file', hint: 'Strg+O', run: openFile },
     { label: 'Drucken …', icon: 'print', hint: 'Strg+P', run: () => activeTab()?.ready && activeTab().webview.print() },
     { label: 'Entwicklertools', icon: 'command', hint: 'F12', run: devtools },
     '-',
@@ -1803,8 +1992,23 @@ function renderHistory (body) {
 
 function renderDownloads (body) {
   body.innerHTML = ''
-  const list = [...S.downloads.values()].sort((a, b) => b.started - a.started)
-  if (!list.length) { body.innerHTML = `<div class="empty">${icon('download')}<div>${T('Keine Downloads in dieser Sitzung')}</div></div>`; return }
+  const live = [...S.downloads.values()]
+  const liveKeys = new Set(live.map(d => `${d.started}|${d.path}`))
+  const old = (S.data.downloadHistory || []).filter(h => !liveKeys.has(h.key)).map(h => ({ ...h, id: h.key, received: h.total, old: true }))
+  const list = [...live, ...old].sort((a, b) => b.started - a.started)
+  if (!list.length) { body.innerHTML = `<div class="empty">${icon('download')}<div>${T('Noch keine Downloads')}</div></div>`; return }
+  const head = document.createElement('div')
+  head.className = 'flex'
+  head.style.marginBottom = '10px'
+  head.innerHTML = `<button class="btn ghost sm" id="dl-folder">${icon('folder')} ${T('Download-Ordner')}</button><span class="grow"></span><button class="btn ghost sm" id="dl-clear">${T('Liste leeren')}</button>`
+  body.append(head)
+  $('#dl-folder', head).onclick = () => openSettings('downloads')
+  $('#dl-clear', head).onclick = () => {
+    S.data.downloadHistory = []
+    save('downloadHistory')
+    for (const [id, d] of S.downloads) if (d.state !== 'progressing') S.downloads.delete(id)
+    renderPanel()
+  }
   for (const d of list) {
     const card = document.createElement('div')
     card.className = 'card'
@@ -1818,6 +2022,16 @@ function renderDownloads (body) {
     const btn = (label, fn, ghost = true) => { const b = document.createElement('button'); b.className = 'btn sm' + (ghost ? ' ghost' : ''); b.textContent = T(label); b.onclick = fn; act.append(b) }
     if (d.state === 'completed') { btn('Öffnen', () => A.send('dl:open', d.path), false); btn('Im Ordner zeigen', () => A.send('dl:show', d.path)) }
     if (d.state === 'progressing') { btn(d.paused ? 'Fortsetzen' : 'Pausieren', () => A.send('dl:control', d.id, d.paused ? 'resume' : 'pause')); btn('Abbrechen', () => A.send('dl:control', d.id, 'cancel')) }
+    if ((d.state === 'cancelled' || d.state === 'interrupted') && /^https?:/.test(d.url)) btn('Erneut herunterladen', () => A.send('dl:retry', d.url, !!d.private))
+    if (d.state !== 'progressing') {
+      btn('Aus Liste entfernen', () => {
+        const key = `${d.started}|${d.path}`
+        S.data.downloadHistory = (S.data.downloadHistory || []).filter(h => h.key !== key)
+        save('downloadHistory')
+        if (!d.old) S.downloads.delete(d.id)
+        renderPanel()
+      })
+    }
     body.append(card)
   }
 }
@@ -1880,6 +2094,7 @@ function addNoteText (text) {
 }
 
 function saveSnapshot (sp = curSpace()) {
+  if (sp.private) return toast('Nicht möglich', 'Der private Space wird nie gespeichert – auch nicht als Zeitkapsel.', 'incognito')
   const tabs = spaceTabs(sp).filter(t => !isNewtab(t.url))
   if (!tabs.length) return toast('Nichts zu sichern', 'Dieser Space hat keine geöffneten Seiten.', 'archive')
   S.data.snapshots.unshift({
@@ -1941,7 +2156,7 @@ async function renderExtensions (body) {
     } catch (err) { toast('Laden fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning') }
   }
   if (!list.length) {
-    body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('puzzle')}<div>${T('Noch keine Erweiterungen installiert.')}<br><span style="font-size:12px">${T('Beliebt:')} uBlock Origin Lite, Dark Reader, Bitwarden, Grammarly</span></div></div>`)
+    body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('puzzle')}<div>${T('Noch keine Erweiterungen installiert.')}<br><span style="font-size:12px">${T('Beliebt:')} Dark Reader, Bitwarden, Grammarly, DeepL</span></div></div>`)
     return
   }
   body.insertAdjacentHTML('beforeend', `<div class="group-title">${T('Installiert ({n})', { n: list.length })}</div>`)
@@ -2003,7 +2218,17 @@ function commands () {
     { title: 'Zeitkapsel dieses Spaces speichern', icon: 'archive', run: () => saveSnapshot() },
     { title: 'Verlauf anzeigen', icon: 'history', hint: 'Strg+H', run: () => togglePanel('history') },
     { title: 'Downloads anzeigen', icon: 'download', hint: 'Strg+J', run: () => togglePanel('downloads') },
-    { title: 'Seiten-Notizen', icon: 'note', hint: 'Strg+Umschalt+N', run: () => togglePanel('notes') },
+    { title: 'Seiten-Notizen', icon: 'note', hint: 'Strg+Umschalt+U', run: () => togglePanel('notes') },
+    { title: 'Privater Space (Inkognito)', icon: 'incognito', hint: 'Strg+Umschalt+N', run: () => openPrivate() },
+    { title: 'Seite übersetzen', icon: 'translate', run: openTranslatePopover },
+    { title: 'Bild-im-Bild', icon: 'pip', run: togglePip },
+    { title: 'Seite speichern unter …', icon: 'download', hint: 'Strg+S', run: savePage },
+    { title: 'Datei öffnen …', icon: 'file', hint: 'Strg+O', run: openFile },
+    { title: 'Alle Tabs als Favoriten speichern', icon: 'star', run: () => bookmarkAllTabs() },
+    { title: 'Website-Einstellungen', icon: 'lock', run: openSitePopover },
+    { title: 'Passwörter verwalten', icon: 'key', run: () => openSettings('passwords') },
+    { title: 'Favoriten und Verlauf importieren', icon: 'importIcon', run: openImportDialog },
+    { title: 'Nach Updates suchen', icon: 'refresh', run: () => openSettings('about') },
     { title: 'Erweiterungen verwalten', icon: 'puzzle', hint: 'Strg+Umschalt+E', run: () => togglePanel('extensions') },
     { title: 'Chrome Web Store öffnen', icon: 'external', run: () => createTab({ url: 'https://chromewebstore.google.com/' }) },
     { title: 'Einstellungen', icon: 'settings', hint: 'Strg+,', run: () => openSettings() },
@@ -2105,7 +2330,8 @@ function openPeek (url) {
   ov.hidden = false
   $('#peek-url').textContent = url
   const wv = document.createElement('webview')
-  wv.setAttribute('partition', PARTITION)
+  // Vorschau aus dem privaten Space bleibt privat
+  wv.setAttribute('partition', curSpace()?.private ? PRIVATE_PARTITION : PARTITION)
   wv.setAttribute('allowpopups', '')
   wv.setAttribute('src', url)
   $('#peek-body').append(wv)
@@ -2304,6 +2530,250 @@ async function openAdblockPopover () {
 }
 
 /* ---------------------------------------------------------------------
+   Website-Einstellungen: Zoom, Ton, Pop-ups und Berechtigungen pro Website
+   --------------------------------------------------------------------- */
+
+const siteCfg = url => S.data.sites?.[hostOf(url)] || {}
+
+function setSiteCfg (url, key, value) {
+  const host = hostOf(url)
+  if (!host) return
+  S.data.sites = S.data.sites || {}
+  const cfg = { ...(S.data.sites[host] || {}) }
+  if (value === undefined || value === null || value === 0) delete cfg[key]
+  else cfg[key] = value
+  if (Object.keys(cfg).length) S.data.sites[host] = cfg
+  else delete S.data.sites[host]
+  save('sites')
+}
+
+// Gespeicherten Zoom und Ton der Website anwenden (nach jedem Seitenwechsel)
+function applySiteSettings (tab) {
+  if (!tab.ready || !/^(https?|file):/.test(tab.url)) return
+  const cfg = siteCfg(tab.url)
+  const z = cfg.zoom || 0
+  if (tab.zoom !== z) { tab.zoom = z; tab.webview.setZoomLevel(z) }
+  const muted = tab.muted || cfg.sound === 'mute'
+  if (tab.webview.isAudioMuted() !== muted) tab.webview.setAudioMuted(muted)
+  tab.siteMuted = cfg.sound === 'mute'
+  updateTabEl(tab)
+}
+
+const PERM_ROWS = [['media-video', 'Kamera'], ['media-audio', 'Mikrofon'], ['geolocation', 'Standort'], ['notifications', 'Benachrichtigungen']]
+
+function openSitePopover () {
+  const t = activeTab()
+  if (!t || !/^https?:/.test(t.url)) return
+  if (S.popover === 'site') return hidePopover()
+  const u = new URL(t.url)
+  const origin = u.origin
+  const host = hostOf(t.url)
+  const cfg = siteCfg(t.url)
+  const perms = S.data.permissions[origin] || {}
+  const sel = (key, value, options) => `<select class="input sm" data-k="${key}">${options.map(([v, l]) => `<option value="${v}" ${String(value ?? '') === v ? 'selected' : ''}>${T(l)}</option>`).join('')}</select>`
+  const permOpts = [['', 'Fragen'], ['true', 'Zulassen'], ['false', 'Blockieren']]
+  const secure = u.protocol === 'https:' && !S.certOverrides.has(u.host)
+  const conn = u.protocol === 'http:' ? T('Die Verbindung ist nicht verschlüsselt. Gib hier keine Passwörter oder Zahlungsdaten ein.')
+    : S.certOverrides.has(u.host) ? T('Das Zertifikat dieser Website ist ungültig und wurde von dir manuell zugelassen.')
+      : T('Die Verbindung ist sicher. Deine Daten werden verschlüsselt übertragen.')
+  const pct = Math.round(Math.pow(1.2, cfg.zoom || 0) * 100)
+  const html = `
+    <h3>${icon(secure ? 'lock' : 'warning')} ${esc(host)}</h3>
+    <div class="sub">${esc(conn)}</div>
+    <div class="site-grid">
+      ${PERM_ROWS.map(([k, l]) => `<span>${T(l)}</span>${sel('perm:' + k, perms[k], permOpts)}`).join('')}
+      <span>${T('Pop-ups und Weiterleitungen')}</span>${sel('popups', cfg.popups, [['', 'Blockieren (Standard)'], ['allow', 'Zulassen'], ['block', 'Blockieren ohne Hinweis']])}
+      <span>${T('Ton')}</span>${sel('sound', cfg.sound, [['', 'Automatisch'], ['mute', 'Stumm']])}
+    </div>
+    ${cfg.zoom ? `<div class="flex" style="margin-top:10px"><span class="grow muted">${T('Zoom: {pct} %', { pct })}</span><button class="btn ghost sm" id="site-zoom">${T('Zurücksetzen')}</button></div>` : ''}
+    <div class="pop-sep"></div>
+    <div class="flex" style="gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="site-clear">${icon('trash')} ${T('Cookies und Website-Daten löschen')}</button><button class="btn ghost sm" id="site-all">${T('Alle Website-Einstellungen')}</button></div>`
+  const p = showPopover($('#omni-site'), html, 'site', 340)
+  p.style.left = Math.max(8, $('#omni-site').getBoundingClientRect().left - 8) + 'px'
+  p.querySelectorAll('select[data-k]').forEach(s => {
+    s.onchange = () => {
+      const k = s.dataset.k
+      if (k.startsWith('perm:')) {
+        const key = k.slice(5)
+        const entry = { ...(S.data.permissions[origin] || {}) }
+        if (s.value === '') delete entry[key]
+        else entry[key] = s.value === 'true'
+        if (Object.keys(entry).length) S.data.permissions[origin] = entry
+        else delete S.data.permissions[origin]
+        save('permissions')
+      } else {
+        setSiteCfg(t.url, k, s.value || undefined)
+        if (k === 'sound') applySiteSettings(t)
+      }
+      toast('Gespeichert', 'Gilt ab dem nächsten Laden der Seite.', 'check', { duration: 1800 })
+    }
+  })
+  const zr = $('#site-zoom', p)
+  if (zr) zr.onclick = () => { setSiteCfg(t.url, 'zoom', 0); applySiteSettings(t); hidePopover() }
+  $('#site-clear', p).onclick = async () => {
+    hidePopover()
+    await A.invoke('site:clear-data', origin)
+    toast('Website-Daten gelöscht', host, 'trash')
+    if (t.ready) t.webview.reload()
+  }
+  $('#site-all', p).onclick = () => openSettings('privacy')
+}
+
+/* ---------------------------------------------------------------------
+   Pop-up-Blocker
+   --------------------------------------------------------------------- */
+
+function updatePopupButton () {
+  const t = activeTab()
+  const b = $('#btn-popup')
+  b.hidden = !t?.blockedPopups?.length
+  b.innerHTML = icon('popup')
+  b.title = T('Pop-up blockiert')
+}
+
+function openPopupPopover () {
+  const t = activeTab()
+  if (!t?.blockedPopups?.length) return
+  if (S.popover === 'popup') return hidePopover()
+  const host = hostOf(t.url)
+  const html = `
+    <h3>${icon('popup')} ${T('Pop-ups blockiert')}</h3>
+    <div class="sub">${T('Diese Seite wollte ohne Klick neue Fenster öffnen:')}</div>
+    <div class="popup-list">${t.blockedPopups.map((u, i) => `<a href="#" data-i="${i}">${esc(u)}</a>`).join('')}</div>
+    <div class="flex" style="margin-top:12px;gap:8px"><button class="btn ghost sm" id="pp-allow">${esc(T('Pop-ups von {host} immer erlauben', { host }))}</button><span class="grow"></span><button class="btn sm" id="pp-done">${T('Fertig')}</button></div>`
+  const p = showPopover($('#btn-popup'), html, 'popup', 360)
+  p.querySelectorAll('[data-i]').forEach(a => {
+    a.onclick = e => {
+      e.preventDefault()
+      A.send('popup:open', t.wcId, t.blockedPopups[+a.dataset.i])
+      hidePopover()
+    }
+  })
+  $('#pp-allow', p).onclick = () => {
+    setSiteCfg(t.url, 'popups', 'allow')
+    for (const u of t.blockedPopups) A.send('popup:open', t.wcId, u)
+    t.blockedPopups = []
+    updatePopupButton()
+    hidePopover()
+  }
+  $('#pp-done', p).onclick = hidePopover
+}
+
+/* ---------------------------------------------------------------------
+   Seite übersetzen (über Google Übersetzer; funktioniert für öffentlich erreichbare Seiten)
+   --------------------------------------------------------------------- */
+
+const LANGS = {
+  de: 'Deutsch', en: 'Englisch', fr: 'Französisch', es: 'Spanisch', it: 'Italienisch', nl: 'Niederländisch', pl: 'Polnisch',
+  pt: 'Portugiesisch', sv: 'Schwedisch', da: 'Dänisch', tr: 'Türkisch', uk: 'Ukrainisch', ru: 'Russisch', ja: 'Japanisch', zh: 'Chinesisch', ko: 'Koreanisch', ar: 'Arabisch'
+}
+const langName = code => { const c = String(code || '').slice(0, 2); return LANGS[c] ? T(LANGS[c]) : c.toUpperCase() || '?' }
+const translateTarget = () => settings().translateTarget || I18N.lang
+
+function isTranslated (url) {
+  try { return new URL(url).hostname.endsWith('.translate.goog') } catch { return false }
+}
+
+// Original-Adresse einer übersetzten Seite: www-example--shop-de.translate.goog → www.example-shop.de
+function originalUrl (url) {
+  try {
+    const u = new URL(url)
+    if (!u.hostname.endsWith('.translate.goog')) return url
+    const host = u.hostname.slice(0, -'.translate.goog'.length).replace(/--/g, '\u0000').replace(/-/g, '.').replace(/\u0000/g, '-')
+    for (const k of [...u.searchParams.keys()]) if (k.startsWith('_x_tr_')) u.searchParams.delete(k)
+    return `https://${host}${u.pathname}${u.search}${u.hash}`
+  } catch { return url }
+}
+
+function translateTab (t, tl = translateTarget()) {
+  if (!t || !/^https?:/.test(t.url)) return
+  const src = originalUrl(t.url)
+  loadInTab(t, `https://translate.google.com/translate?sl=auto&tl=${encodeURIComponent(tl)}&hl=${I18N.lang}&u=${encodeURIComponent(src)}`)
+}
+
+function updateTranslateButton () {
+  const t = activeTab()
+  const b = $('#btn-translate')
+  const translated = !!t && isTranslated(t.url)
+  const foreign = !!t?.lang && /^https?:/.test(t.url) && t.lang.slice(0, 2) !== translateTarget().slice(0, 2)
+  b.hidden = !(translated || (foreign && settings().translateOffer !== false))
+  b.classList.toggle('on', translated)
+  b.innerHTML = icon('translate')
+  b.title = translated ? T('Übersetzt – Original anzeigen?') : T('Seite übersetzen')
+}
+
+function openTranslatePopover () {
+  const t = activeTab()
+  if (!t || !/^https?:/.test(t.url)) return
+  if (S.popover === 'translate') return hidePopover()
+  const translated = isTranslated(t.url)
+  const target = translateTarget()
+  const html = `
+    <h3>${icon('translate')} ${T(translated ? 'Seite übersetzt' : 'Seite übersetzen')}</h3>
+    <div class="sub">${translated ? T('Die Seite wird über Google Übersetzer angezeigt.') : t.lang ? esc(T('Diese Seite ist auf {lang}.', { lang: langName(t.lang) })) : T('Die Sprache der Seite ist unbekannt.')}</div>
+    <div class="field"><label>${T('Übersetzen in')}</label><select class="input" id="tr-lang">${Object.keys(LANGS).map(c => `<option value="${c}" ${c === target.slice(0, 2) ? 'selected' : ''}>${langName(c)}</option>`).join('')}</select></div>
+    <div class="set-row" style="padding:6px 0 0;border:0"><div><div class="t">${T('Übersetzung anbieten')}</div><div class="d">${T('Symbol in der Adressleiste bei fremdsprachigen Seiten')}</div></div><label class="switch"><input type="checkbox" id="tr-offer" ${settings().translateOffer !== false ? 'checked' : ''}><span></span></label></div>
+    <div class="muted" style="font-size:11.5px;line-height:1.5;margin-top:8px">${T('Seiten hinter einer Anmeldung lassen sich so nicht übersetzen – dafür im Kontextmenü „Mit {ai} übersetzen“ nutzen.', { ai: assistant()?.name || 'KI' })}</div>
+    <div class="flex" style="margin-top:12px;gap:8px">${translated ? `<button class="btn ghost sm" id="tr-orig">${T('Original anzeigen')}</button>` : ''}<span class="grow"></span><button class="btn sm" id="tr-go">${T('Übersetzen')}</button></div>`
+  const p = showPopover($('#btn-translate').hidden ? $('#omni-site') : $('#btn-translate'), html, 'translate', 340)
+  $('#tr-lang', p).onchange = e => { settings().translateTarget = e.target.value; save('settings') }
+  $('#tr-offer', p).onchange = e => { settings().translateOffer = e.target.checked; save('settings'); updateTranslateButton() }
+  $('#tr-go', p).onclick = () => { hidePopover(); translateTab(t, $('#tr-lang', p).value) }
+  const orig = $('#tr-orig', p)
+  if (orig) orig.onclick = () => { hidePopover(); loadInTab(t, originalUrl(t.url)) }
+}
+
+/* ---------------------------------------------------------------------
+   Geräteauswahl (WebUSB, WebHID, Web Serial, Web Bluetooth)
+   --------------------------------------------------------------------- */
+
+const DEVICE_KINDS = { usb: 'USB-Gerät', hid: 'HID-Gerät', serial: 'serielle Schnittstelle', bluetooth: 'Bluetooth-Gerät' }
+
+function openDevicePicker ({ reqId, kind, origin, devices }) {
+  S.devicePick = { reqId, devices }
+  const done = id => {
+    if (!S.devicePick || S.devicePick.reqId !== reqId) return
+    S.devicePick = null
+    A.send('ui:reply', reqId, id)
+    closeModal()
+  }
+  const render = () => {
+    const list = S.devicePick?.devices || []
+    $('#dev-list').innerHTML = list.length
+      ? list.map(d => `<div class="row" data-id="${esc(d.id)}"><span class="r-ico">${icon('usb')}</span><div class="r-main"><div class="r-title">${esc(d.name)}</div></div></div>`).join('')
+      : `<div class="empty">${icon('usb')}<div>${kind === 'bluetooth' ? T('Suche nach Geräten …') : T('Keine passenden Geräte gefunden.')}</div></div>`
+    $('#dev-list').querySelectorAll('[data-id]').forEach(r => { r.onclick = () => done(r.dataset.id) })
+  }
+  showModal(`
+    <div class="modal-head"><h2>${esc(T('{site} möchte eine Verbindung herstellen', { site: origin || T('Eine Website') }))}</h2></div>
+    <div class="modal-body"><p class="muted" style="margin-top:0">${esc(T('Wähle ein {kind}:', { kind: T(DEVICE_KINDS[kind] || 'Gerät') }))}</p><div id="dev-list"></div></div>
+    <div class="modal-foot"><button class="btn ghost" id="dev-cancel">${T('Abbrechen')}</button></div>`)
+  $('#dev-cancel').onclick = () => done(null)
+  S.devicePick.render = render
+  render()
+}
+
+/* ---------------------------------------------------------------------
+   Passwörter: Speichern anbieten
+   --------------------------------------------------------------------- */
+
+function offerPassword ({ offerId, origin, username, update }) {
+  let host = origin
+  try { host = new URL(origin).hostname.replace(/^www\./, '') } catch {}
+  let answered = false
+  const reply = choice => { answered = true; A.send('pw:offer-reply', offerId, choice) }
+  toast(update ? T('Passwort für {host} aktualisieren?', { host }) : T('Passwort für {host} speichern?', { host }),
+    username ? T('Benutzer: {user}', { user: username }) : T('Ohne Benutzernamen'), 'key', {
+      duration: 45000,
+      actions: [
+        { label: update ? 'Aktualisieren' : 'Speichern', run: () => { reply('save'); toast('Passwort gespeichert', host, 'key', { duration: 2000 }) } },
+        ...(update ? [] : [{ label: 'Nie für diese Website', run: () => reply('never') }])
+      ]
+    })
+  setTimeout(() => { if (!answered) A.send('pw:offer-reply', offerId, 'dismiss') }, 46000)
+}
+
+/* ---------------------------------------------------------------------
    VPN (Tor mit Länderwahl oder eigene Server)
    --------------------------------------------------------------------- */
 
@@ -2359,7 +2829,7 @@ function renderVpnPopover () {
       </div>
     </div>
     <div class="flex" style="margin-bottom:12px">
-      <button class="btn grow" id="vpn-toggle" style="justify-content:center" ${busy ? 'disabled' : ''}>${on || busy ? T('Trennen') : T('Verbinden')}</button>
+      <button class="btn grow" id="vpn-toggle" style="justify-content:center">${on || busy ? T('Trennen') : T('Verbinden')}</button>
       ${on && v.mode === 'tor' ? `<button class="btn ghost" id="vpn-newnym" title="${T('Neue Route und neue IP')}">${icon('refresh')}</button>` : ''}
     </div>
     <div class="seg" id="vpn-mode" style="width:100%;margin-bottom:8px">
@@ -3103,12 +3573,14 @@ async function openSettings (section = 'general') {
     ['adblock', 'shieldCheck', T('Werbeblocker')],
     ['vpn', 'vpn', 'VPN'],
     ['privacy', 'lock', T('Privatsphäre')],
+    ['passwords', 'key', T('Passwörter')],
+    ['downloads', 'download', T('Downloads')],
     ['performance', 'bolt', T('Leistung')],
     ['focus', 'focus', T('Fokus-Modus')],
     ['about', 'info', T('Über Caravel')]
   ]
   const perms = Object.entries(S.data.permissions || {})
-  const PERM_NAMES = { media: 'Kamera/Mikrofon', geolocation: 'Standort', notifications: 'Benachrichtigungen', 'clipboard-read': 'Zwischenablage', midi: 'MIDI', midiSysex: 'MIDI', 'display-capture': 'Bildschirmaufnahme', openExternal: 'Externe Apps', 'idle-detection': 'Inaktivität', hid: 'HID-Geräte', serial: 'Serielle Geräte', usb: 'USB-Geräte' }
+  const PERM_NAMES = { media: 'Kamera/Mikrofon', 'media-video': 'Kamera', 'media-audio': 'Mikrofon', geolocation: 'Standort', notifications: 'Benachrichtigungen', 'clipboard-read': 'Zwischenablage', midi: 'MIDI', midiSysex: 'MIDI', 'display-capture': 'Bildschirmaufnahme', openExternal: 'Externe Apps', 'idle-detection': 'Inaktivität', hid: 'HID-Geräte', serial: 'Serielle Geräte', usb: 'USB-Geräte' }
   const ai = ASSISTANTS[st.assistant]
   const mcpClient = st.assistant === 'chatgpt' ? 'Codex' : 'Claude Code'
   const row = (title, desc, control) => `<div class="set-row"><div><div class="t">${title}</div>${desc ? `<div class="d">${desc}</div>` : ''}</div>${control}</div>`
@@ -3120,7 +3592,15 @@ async function openSettings (section = 'general') {
       ${row(T('Dein Name'), T('Für die persönliche Begrüßung auf der Startseite.'), `<input class="input" data-s="userName" value="${esc(st.userName)}" placeholder="${T('Name')}" style="width:200px">`)}
       ${row(T('Suchmaschine'), T('Wird in der Adressleiste und auf der Startseite verwendet.'), `<select class="input" data-s="searchEngine">${Object.entries(SEARCH_ENGINES).map(([k, v]) => `<option value="${k}" ${k === st.searchEngine ? 'selected' : ''}>${v.name}</option>`).join('')}</select>`)}
       ${row(T('Sitzung wiederherstellen'), T('Beim Start alle Spaces und Tabs wieder öffnen (schlafend, bis sie gebraucht werden).'), toggle('restoreSession', st.restoreSession))}
-      ${row(T('Standardbrowser'), T('Caravel als Standard für Links und HTML-Dateien festlegen.'), `<button class="btn ghost" id="set-default">${T('Windows-Einstellungen öffnen')}</button>`)}`,
+      ${row(T('Standardbrowser'), T('Caravel als Standard für Links und HTML-Dateien festlegen.'), `<button class="btn ghost" id="set-default">${T('Windows-Einstellungen öffnen')}</button>`)}
+      ${row(T('Favoriten und Verlauf importieren'), T('Aus Google Chrome, Microsoft Edge oder Brave übernehmen. Passwörter lassen sich unter „Passwörter“ per CSV importieren.'), `<button class="btn ghost" id="set-import">${icon('importIcon')} ${T('Importieren …')}</button>`)}`,
+    downloads: `<h3>${T('Downloads')}</h3>
+      ${row(T('Speicherort'), esc(st.downloadDir || info.downloads), `<button class="btn ghost" id="set-dldir">${T('Ändern …')}</button>`)}
+      ${st.downloadDir ? row(T('Standardordner verwenden'), esc(info.downloads), `<button class="btn ghost" id="set-dlreset">${T('Zurücksetzen')}</button>`) : ''}
+      ${row(T('Vor dem Download nach dem Speicherort fragen'), T('Bei jedem Download den Dialog „Speichern unter“ zeigen.'), toggle('downloadAsk', st.downloadAsk))}`,
+    passwords: `<h3>${T('Passwörter')}</h3>
+      ${row(T('Passwörter speichern anbieten'), T('Nach einer Anmeldung fragt Caravel, ob die Zugangsdaten gespeichert werden sollen. Sie werden mit deinem Windows-Konto verschlüsselt und nur nach einem Klick im Auswahlmenü am Eingabefeld ausgefüllt.'), toggle('passwordsEnabled', st.passwordsEnabled !== false))}
+      <div id="pw-box"><div class="muted" style="padding:14px 0">${T('Wird geladen …')}</div></div>`,
     appearance: `<h3>${T('Darstellung')}</h3>
       ${row(T('Design'), '', `<div class="seg" data-seg="theme">${[['dark', T('Dunkel')], ['light', T('Hell')], ['system', T('System')]].map(([k, l]) => `<button data-v="${k}" class="${st.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
       ${row(T('Websites abdunkeln'), T('Im dunklen Design werden Seiten ohne eigenen Dunkelmodus (z. B. die Google-Suche) automatisch dunkel dargestellt – wie Chromes „Automatischer dunkler Modus für Webinhalte“. Seiten mit eigenem Dunkelmodus bleiben unverändert.'), toggle('autoDarkPages', st.autoDarkPages !== false))}
@@ -3182,6 +3662,12 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
       ${row(T('Browserdaten löschen'), T('Entfernt die gewählten Daten aller Websites.'), `<div class="flex"><button class="btn ghost sm" data-clear="cache">${T('Cache')}</button><button class="btn ghost sm" data-clear="cookies">${T('Cookies')}</button><button class="btn ghost sm" data-clear="storage">${T('Website-Daten')}</button><button class="btn ghost sm" data-clear="history">${T('Verlauf')}</button></div>`)}
       <div class="set-row" style="display:block"><div class="t">${T('Gespeicherte Website-Berechtigungen')}</div>
         ${perms.length ? perms.map(([origin, p]) => `<div class="flex" style="margin-top:8px"><span class="grow" style="word-break:break-all">${esc(origin)}<br><span class="muted" style="font-size:12px">${Object.entries(p).map(([k, v]) => `${esc(T(PERM_NAMES[k] || k))}: ${v ? T('erlaubt') : T('blockiert')}`).join(' · ')}</span></span><button class="btn ghost sm" data-perm="${esc(origin)}">${T('Zurücksetzen')}</button></div>`).join('') : `<div class="d" style="margin-top:6px">${T('Keine gespeicherten Berechtigungen.')}</div>`}
+      </div>
+      <div class="set-row" style="display:block"><div class="t">${T('Einstellungen pro Website')}</div><div class="d">${T('Zoom, Ton und Pop-ups – änderbar über das Schloss-Symbol in der Adressleiste.')}</div>
+        ${Object.keys(S.data.sites || {}).length ? Object.entries(S.data.sites).map(([host, c]) => `<div class="flex" style="margin-top:8px"><span class="grow" style="word-break:break-all">${esc(host)}<br><span class="muted" style="font-size:12px">${[
+          c.zoom ? T('Zoom: {pct} %', { pct: Math.round(Math.pow(1.2, c.zoom) * 100) }) : '',
+          c.popups === 'allow' ? T('Pop-ups erlaubt') : c.popups === 'block' ? T('Pop-ups blockiert') : '',
+          c.sound === 'mute' ? T('Stumm') : ''].filter(Boolean).join(' · ')}</span></span><button class="btn ghost sm" data-site="${esc(host)}">${T('Zurücksetzen')}</button></div>`).join('') : `<div class="d" style="margin-top:6px">${T('Keine besonderen Einstellungen.')}</div>`}
       </div>`,
     performance: `<h3>${T('Leistung')}</h3>
       ${row(T('Tab-Schlaf'), T('Inaktive Tabs werden nach dieser Zeit schlafen gelegt und geben ihren Arbeitsspeicher frei. Sie wachen beim Anklicken sofort wieder auf. Tabs mit Ton schlafen nie.'),
@@ -3192,14 +3678,38 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
       <div class="field" style="margin-top:14px"><label>${T('Gesperrte Websites (eine Domain pro Zeile)')}</label><textarea class="input" rows="9" id="set-blocklist">${esc(st.focusBlocklist.join('\n'))}</textarea><span class="hint">${T('Subdomains werden automatisch mitgesperrt (z. B. m.youtube.com).')}</span></div>
       <div class="card"><div class="flex"><span style="color:var(--accent)">${icon('sparkles')}</span><div>${T('Bisher <b>{s}</b> abgeschlossene Sessions · <b>{m}</b> fokussierte Minuten', { s: S.data.focusStats.sessions, m: S.data.focusStats.minutes })}</div></div></div>`,
     about: `<div class="about-hero">${$('.logo').outerHTML.replace('class="logo"', 'style="width:64px;height:64px"').replace('id="lg"', 'id="lg2"').replace('url(#lg)', 'url(#lg2)')}<div><h4>Caravel</h4><div class="muted">${T('Version')} ${esc(info.version)} · Chromium ${esc(info.chrome)}</div></div></div>
+      <div class="card" id="upd-box"></div>
+      ${row(T('Updates automatisch herunterladen'), T('Caravel sucht beim Start und alle vier Stunden nach einer neuen Version und installiert sie beim nächsten Beenden.'), toggle('autoUpdate', st.autoUpdate !== false))}
       <p style="line-height:1.6">${T('Caravel ist ein Browser für Menschen, die im Web arbeiten, lernen und entdecken. Er verbindet die Chromium-Engine mit Ideen, die andere Browser nicht haben: <b>Spaces</b>, <b>Split View</b>, <b>Peek</b>, <b>Fokus-Modus</b>, <b>Seiten-Notizen</b>, <b>Zeitkapseln</b>, <b>Tab-Schlaf</b>, <b>Ambient-Farben</b>, einen <b>Leser-Modus mit Vorlesefunktion</b> und <b>Chromecast</b>.')}</p>
       <div class="card"><div class="kbd-list"><div>Electron</div><div>${esc(info.electron)}</div><div>Chromium</div><div>${esc(info.chrome)}</div><div>Node.js</div><div>${esc(info.node)}</div><div>${T('Download-Ordner')}</div><div>${esc(info.downloads)}</div></div></div>
       <p class="muted" style="font-size:12px;line-height:1.6">${T('Chrome-Erweiterungen: electron-chrome-extensions (GPL-3.0), electron-chrome-web-store (MIT). Werbeblocker: @ghostery/adblocker (MPL-2.0) mit den Filterlisten von uBlock Origin (GPL-3.0) und EasyList (GPL-3.0/CC BY-SA 3.0). VPN: Tor (BSD-3-Clause), wireproxy (ISC). Leser-Modus: Mozilla Readability (Apache-2.0), Turndown (MIT). Chromecast: castv2 (MIT), multicast-dns (MIT).')}<br>${T('„Claude“ ist eine Marke von Anthropic, „ChatGPT“ und „Codex“ sind Marken von OpenAI. Caravel ist ein unabhängiges Projekt und steht in keiner Verbindung zu Anthropic, OpenAI, Google oder dem Tor Project.')}</p>`
   }
   showModal(`<div class="settings"><nav><h2>${T('Einstellungen')}</h2>${nav.map(([k, ic, l]) => `<button data-sec="${k}" class="${k === section ? 'on' : ''}">${icon(ic)} ${l}</button>`).join('')}</nav><section><button class="icon-btn sm close-x" data-close>${icon('x')}</button>${sections[section]}</section></div>`, { wide: true })
+  S.modalSection = section
   const card = $('#modal-card')
   card.querySelectorAll('[data-sec]').forEach(b => { b.onclick = () => openSettings(b.dataset.sec) })
   const apply = () => { save('settings'); applySettings() }
+  if (section === 'about') renderUpdateBox()
+  if (section === 'passwords') renderPasswords()
+  const imp = $('#set-import')
+  if (imp) imp.onclick = openImportDialog
+  const dlDir = $('#set-dldir')
+  if (dlDir) {
+    dlDir.onclick = async () => {
+      const dir = await A.invoke('app:pick-folder', st.downloadDir || '')
+      if (dir) { st.downloadDir = dir; saveSettingsNow(); openSettings('downloads') }
+    }
+  }
+  const dlReset = $('#set-dlreset')
+  if (dlReset) dlReset.onclick = () => { st.downloadDir = ''; saveSettingsNow(); openSettings('downloads') }
+  card.querySelectorAll('[data-site]').forEach(b => {
+    b.onclick = () => {
+      delete S.data.sites[b.dataset.site]
+      save('sites')
+      for (const t of S.tabs.values()) if (hostOf(t.url) === b.dataset.site) applySiteSettings(t)
+      openSettings('privacy')
+    }
+  })
   card.querySelectorAll('[data-s]').forEach(el => {
     el.onchange = () => {
       const k = el.dataset.s
@@ -3316,6 +3826,141 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
   if (vpnOpen) vpnOpen.onclick = () => { closeModal(); openVpnPopover() }
 }
 
+// Einstellungen › Über Caravel: Update-Status
+async function renderUpdateBox () {
+  const box = $('#upd-box')
+  if (!box) return
+  if (!S.update) { try { S.update = await A.invoke('update:state') } catch { return } }
+  const u = S.update
+  const text = {
+    idle: T('Noch nicht nach Updates gesucht.'),
+    checking: T('Suche nach Updates …'),
+    current: T('Caravel ist auf dem neuesten Stand.'),
+    downloading: T('Lade Version {v} herunter … {p} %', { v: u.version, p: u.progress || 0 }),
+    ready: T('Version {v} ist bereit und wird beim nächsten Beenden installiert.', { v: u.version }),
+    error: T('Update-Prüfung fehlgeschlagen: {e}', { e: u.error || '' })
+  }[u.status] || ''
+  const sub = !u.supported ? T('Updates gibt es nur in der installierten Version (nicht beim Start mit „npm start“).') : u.checked ? T('Zuletzt geprüft: {t}', { t: new Date(u.checked).toLocaleString(I18N.locale, { dateStyle: 'short', timeStyle: 'short' }) }) : ''
+  box.innerHTML = `<div class="flex"><span style="color:var(--accent)">${icon('refresh')}</span><div class="grow"><div>${esc(text)}</div>${sub ? `<div class="muted" style="font-size:12px">${esc(sub)}</div>` : ''}</div>
+    ${u.status === 'ready' ? `<button class="btn sm" id="upd-install">${T('Jetzt neu starten')}</button>` : `<button class="btn ghost sm" id="upd-check" ${u.status === 'checking' || u.status === 'downloading' ? 'disabled' : ''}>${T('Nach Updates suchen')}</button>`}</div>`
+  const chk = $('#upd-check', box)
+  if (chk) chk.onclick = async () => { S.update = { ...u, status: 'checking' }; renderUpdateBox(); S.update = await A.invoke('update:check'); renderUpdateBox() }
+  const ins = $('#upd-install', box)
+  if (ins) ins.onclick = () => { flushPending(); A.send('update:install') }
+}
+
+// Einstellungen › Passwörter: Liste mit Suche, Anzeigen, Kopieren, Bearbeiten, Löschen, CSV-Import/-Export
+async function renderPasswords (filter = '') {
+  const box = $('#pw-box')
+  if (!box) return
+  let data
+  try { data = await A.invoke('pw:list') } catch { return }
+  if (!$('#pw-box')) return
+  const q = filter.toLowerCase()
+  const items = data.items.filter(i => !q || (i.origin + ' ' + i.username).toLowerCase().includes(q))
+  box.innerHTML = `
+    ${data.available ? '' : `<div class="card" style="color:#f87171">${T('Die Windows-Verschlüsselung ist nicht verfügbar – Passwörter können nicht gespeichert werden.')}</div>`}
+    <div class="flex" style="margin:14px 0 8px;gap:8px"><input class="input grow" id="pw-search" placeholder="${T('Passwörter durchsuchen …')}" value="${esc(filter)}"><button class="btn ghost sm" id="pw-import">${icon('importIcon')} ${T('CSV importieren')}</button><button class="btn ghost sm" id="pw-export">${T('Exportieren')}</button></div>
+    <div class="muted" style="font-size:12px;margin-bottom:6px">${T('{n} gespeicherte Passwörter', { n: data.items.length })} · ${T('Aus Chrome: chrome://password-manager/settings → „Passwörter exportieren“, dann hier importieren.')}</div>
+    <div id="pw-list">${items.map(i => `<div class="row pw-row" data-id="${esc(i.id)}"><span class="r-ico"></span><div class="r-main"><div class="r-title">${esc(new URL(i.origin).hostname)}</div><div class="r-sub">${esc(i.username || '—')} · <span class="pw-val">••••••••</span></div></div>
+      <div class="r-act" style="opacity:1"><button class="icon-btn sm" data-a="show" title="${T('Anzeigen')}">${icon('eye')}</button><button class="icon-btn sm" data-a="copy" title="${T('Passwort kopieren')}">${icon('copy')}</button><button class="icon-btn sm" data-a="edit" title="${T('Bearbeiten')}">${icon('type')}</button><button class="icon-btn sm" data-a="del" title="${T('Löschen')}">${icon('trash')}</button></div></div>`).join('') || `<div class="empty">${icon('key')}<div>${q ? T('Keine Treffer') : T('Noch keine Passwörter gespeichert')}</div></div>`}</div>
+    ${data.never.length ? `<div class="group-title">${T('Nie speichern für')}</div>${data.never.map(o => `<div class="flex" style="margin-top:6px"><span class="grow">${esc(o)}</span><button class="btn ghost sm" data-never="${esc(o)}">${T('Entfernen')}</button></div>`).join('')}` : ''}`
+  for (const row of box.querySelectorAll('.pw-row')) {
+    const item = data.items.find(i => i.id === row.dataset.id)
+    row.querySelector('.r-ico').append(faviconEl(null, item.origin))
+    row.querySelector('.r-act').onclick = async e => {
+      const a = e.target.closest('[data-a]')?.dataset.a
+      if (!a) return
+      if (a === 'show') {
+        const val = row.querySelector('.pw-val')
+        val.textContent = val.dataset.shown ? '••••••••' : await A.invoke('pw:reveal', item.id)
+        val.dataset.shown = val.dataset.shown ? '' : '1'
+      }
+      if (a === 'copy') { A.send('clipboard:write', await A.invoke('pw:reveal', item.id)); toast('Passwort kopiert', new URL(item.origin).hostname, 'copy', { duration: 2000 }) }
+      if (a === 'del') confirmDialog(T('Passwort für {host} löschen?', { host: new URL(item.origin).hostname }), 'Das gespeicherte Passwort wird entfernt.', 'Löschen', async () => { await A.invoke('pw:delete', item.id); openSettings('passwords') })
+      if (a === 'edit') editPasswordDialog(item)
+    }
+  }
+  const search = $('#pw-search', box)
+  search.oninput = () => { const v = search.value; renderPasswords(v).then(() => { const s = $('#pw-search'); if (s) { s.focus(); s.setSelectionRange(v.length, v.length) } }) }
+  $('#pw-import', box).onclick = async () => {
+    try {
+      const n = await A.invoke('pw:import')
+      if (n !== null) { toast('Passwörter importiert', T('{n} Einträge übernommen.', { n }), 'key'); openSettings('passwords') }
+    } catch (err) { toast('Import fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, ''), 'warning', { duration: 7000 }) }
+  }
+  $('#pw-export', box).onclick = () => confirmDialog('Passwörter exportieren?', 'Die Datei enthält alle Passwörter unverschlüsselt. Bewahre sie sicher auf und lösche sie nach dem Import.', 'Exportieren', async () => {
+    const file = await A.invoke('pw:export')
+    if (file) toast('Passwörter exportiert', file.split(/[\\/]/).pop(), 'key', { actions: [{ label: 'Ordner', run: () => A.send('dl:show', file) }] })
+  })
+  box.querySelectorAll('[data-never]').forEach(b => { b.onclick = async () => { await A.invoke('pw:never-remove', b.dataset.never); renderPasswords(filter) } })
+}
+
+async function editPasswordDialog (item) {
+  const password = await A.invoke('pw:reveal', item.id)
+  showModal(`
+    <div class="modal-head"><h2>${esc(new URL(item.origin).hostname)}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>${T('Benutzername')}</label><input class="input" id="pe-user" value="${esc(item.username)}"></div>
+      <div class="field"><label>${T('Passwort')}</label><input class="input" id="pe-pass" type="password" value="${esc(password || '')}"></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-close>${T('Abbrechen')}</button><button class="btn" id="pe-save">${T('Speichern')}</button></div>`)
+  $('#pe-save').onclick = async () => {
+    await A.invoke('pw:update', item.id, { username: $('#pe-user').value, password: $('#pe-pass').value })
+    openSettings('passwords')
+  }
+}
+
+// Favoriten und Verlauf aus Chrome, Edge oder Brave übernehmen
+async function openImportDialog () {
+  closeFloating()
+  const sources = await A.invoke('import:sources').catch(() => [])
+  if (!sources.length) return toast('Nichts zu importieren', 'Es wurde kein Chrome, Edge oder Brave gefunden.', 'importIcon')
+  showModal(`
+    <div class="modal-head"><h2>${T('Favoriten und Verlauf importieren')}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>${T('Aus')}</label><select class="input" id="im-src">${sources.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></div>
+      <label class="flex" style="gap:8px;margin:8px 0"><input type="checkbox" id="im-bm" checked> ${T('Favoriten')}</label>
+      <label class="flex" style="gap:8px;margin:8px 0"><input type="checkbox" id="im-hist" checked> ${T('Verlauf')}</label>
+      <p class="muted" style="font-size:12px;line-height:1.5">${T('Bereits vorhandene Favoriten werden nicht doppelt angelegt. Passwörter: in Chrome als CSV exportieren und unter Einstellungen › Passwörter importieren.')}</p>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-close>${T('Abbrechen')}</button><button class="btn" id="im-go">${T('Importieren')}</button></div>`)
+  $('#im-go').onclick = async () => {
+    const src = sources.find(s => s.id === $('#im-src').value)
+    const what = { bookmarks: $('#im-bm').checked && src.bookmarks, history: $('#im-hist').checked && src.history }
+    $('#im-go').disabled = true
+    let res
+    try { res = await A.invoke('import:run', src.id, what) } catch (err) {
+      $('#im-go').disabled = false
+      return toast('Import fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, ''), 'warning', { duration: 8000 })
+    }
+    closeModal()
+    let nb = 0
+    let nh = 0
+    if (res.bookmarks) {
+      const known = new Set(bmFlat().map(b => b.url))
+      const fresh = items => items.filter(b => !known.has(b.url) && known.add(b.url))
+      for (const b of res.bookmarks.bar) {
+        if (b.folder) { b.children = fresh(b.children); if (b.children.length) { S.data.bookmarks.push(b); nb += b.children.length } } else if (fresh([b]).length) { S.data.bookmarks.push(b); nb++ }
+      }
+      const other = fresh(res.bookmarks.other)
+      if (other.length) {
+        S.data.bookmarks.push({ id: bmNewId(), folder: true, title: T('Importiert aus {name}', { name: src.name }), children: other })
+        nb += other.length
+      }
+      saveBookmarks()
+    }
+    if (res.history) {
+      const seen = new Set(S.data.history.map(h => h.url + '|' + h.time))
+      const add = res.history.filter(h => !seen.has(h.url + '|' + h.time))
+      nh = add.length
+      S.data.history = [...S.data.history, ...add].sort((a, b) => b.time - a.time).slice(0, 3000)
+      save('history')
+    }
+    toast('Import abgeschlossen', T('{b} Favoriten und {h} Verlaufseinträge übernommen.', { b: nb, h: nh }), 'check', { duration: 6000 })
+  }
+}
+
 async function openClaudeExtension () {
   const t = activeTab()
   if (!t?.wcId || !/^https?:/.test(t.url)) {
@@ -3346,8 +3991,10 @@ function showShortcuts () {
     ['Befehlspalette', 'Strg K'], ['Neuer Tab', 'Strg T'], ['Tab schließen', 'Strg W'], ['Geschlossenen Tab öffnen', 'Strg Umschalt T'],
     ['Nächster / vorheriger Tab', 'Strg Tab / Strg Umschalt Tab'], ['Tab 1–9', 'Strg 1–9'], ['Space 1–9', 'Alt 1–9'],
     ['Adressleiste', 'Strg L'], ['Split View', 'Strg Umschalt S'], ['Peek-Vorschau', 'Umschalt + Klick auf Link'],
-    ['Leser-Modus', 'F9'], ['Fokus-Modus', 'Strg Umschalt F'], ['Screenshot', 'Strg Umschalt X'], ['Seiten-Notizen', 'Strg Umschalt N'],
-    ['Lesezeichen', 'Strg D'], ['Auf Seite suchen', 'Strg F'], ['Verlauf', 'Strg H'], ['Downloads', 'Strg J'], ['Erweiterungen', 'Strg Umschalt E'],
+    ['Privater Space', 'Strg Umschalt N'], ['Tab suchen', 'Strg Umschalt A'], ['Tab schließen', 'Strg F4'], ['Nächster / vorheriger Tab', 'Strg Bild↓ / Strg Bild↑'],
+    ['Leser-Modus', 'F9'], ['Fokus-Modus', 'Strg Umschalt F'], ['Screenshot', 'Strg Umschalt X'], ['Seiten-Notizen', 'Strg Umschalt U'],
+    ['Lesezeichen', 'Strg D'], ['Auf Seite suchen', 'Strg F'], ['Nächster Treffer', 'F3 / Strg G'], ['Verlauf', 'Strg H'], ['Downloads', 'Strg J'], ['Erweiterungen', 'Strg Umschalt E'],
+    ['Seite speichern', 'Strg S'], ['Datei öffnen', 'Strg O'], ['Seitenquelltext', 'Strg U'], ['Browserdaten löschen', 'Strg Umschalt Entf'], ['Startseite', 'Alt Pos1'],
     ...(dockEnabled() ? [[T('{ai}-Seitenleiste', { ai: assistant().name }), 'Strg E'], [T('Seite an {ai} übergeben', { ai: assistant().name }), 'Strg Umschalt L']] : []),
     ['Seitenleiste', 'Strg B'], ['Zoom', 'Strg + / Strg − / Strg 0'], ['Vollbild', 'F11'], ['Entwicklertools', 'F12'], ['Einstellungen', 'Strg ,']
   ]
@@ -3400,11 +4047,50 @@ function initFind () {
   $('#find-close').onclick = close
 }
 
+// Strg+S: Seite speichern (vollständig, nur HTML oder als MHTML)
+async function savePage () {
+  const t = activeTab()
+  if (!t?.wcId || isNewtab(t.url)) return
+  try {
+    const file = await A.invoke('tab:save-page', t.wcId)
+    if (file) toast('Seite gespeichert', file.split(/[\\/]/).pop(), 'download', { actions: [{ label: 'Ordner', run: () => A.send('dl:show', file) }] })
+  } catch (err) { toast('Speichern fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning') }
+}
+
+// Strg+O: lokale Datei(en) öffnen
+async function openFile () {
+  const urls = await A.invoke('app:open-file').catch(() => [])
+  for (const url of urls) createTab({ url })
+}
+
+// F3 / Strg+G: nächster Treffer der Seitensuche
+function findAgain (forward) {
+  const t = activeTab()
+  const q = $('#find-input').value
+  if (!t?.ready || !q) return openFind()
+  $('#findbar').hidden = false
+  t.webview.findInPage(q, { forward, findNext: true })
+}
+
+// Bild-im-Bild für das größte Video der Seite (Befehlspalette)
+function togglePip () {
+  const t = activeTab()
+  if (!t?.ready) return
+  t.webview.executeJavaScript(`(() => {
+    const v = [...document.querySelectorAll('video')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0];
+    if (!v) return false;
+    if (document.pictureInPictureElement) { document.exitPictureInPicture(); return true }
+    return v.requestPictureInPicture().then(() => true, () => false);
+  })()`, true).then(ok => { if (!ok) toast('Bild-im-Bild', 'Auf dieser Seite wurde kein Video gefunden.', 'pip') }).catch(() => {})
+}
+
 function zoom (dir) {
   const t = activeTab()
   if (!t?.ready) return
   t.zoom = dir === 0 ? 0 : Math.max(-5, Math.min(6, t.zoom + dir * 0.5))
   t.webview.setZoomLevel(t.zoom)
+  // wie in Chrome pro Website merken (im privaten Space nur vorübergehend)
+  if (!isPrivateTab(t) && /^(https?|file):/.test(t.url)) setSiteCfg(t.url, 'zoom', t.zoom)
   const pct = Math.round(Math.pow(1.2, t.zoom) * 100)
   $$('.toast[data-zoom]').forEach(x => x.remove())
   toast(`${T('Zoom')} ${pct} %`, 'Strg+0 setzt zurück', 'zoomIn', { duration: 1400 })
@@ -3423,7 +4109,7 @@ function toggleFullscreen () {
 }
 
 function sleepAll () {
-  for (const t of S.tabs.values()) if (!isVisible(t) && !t.audible) sleepTab(t)
+  for (const t of S.tabs.values()) if (!isVisible(t) && !t.audible && !S.agentTabs.has(t.wcId)) sleepTab(t)
 }
 
 function cycleTab (dir) {
@@ -3434,7 +4120,8 @@ function cycleTab (dir) {
   activate(ids[(i + dir + ids.length) % ids.length])
 }
 
-function goBack () { const t = activeTab(); if (t?.ready && t.webview.canGoBack()) t.webview.goBack() }
+// Über den Hauptprozess, damit Fehlerseiten die fehlgeschlagene Adresse überspringen
+function goBack () { const t = activeTab(); if (t?.ready && t.webview.canGoBack()) A.send('tab:back', t.wcId) }
 function goForward () { const t = activeTab(); if (t?.ready && t.webview.canGoForward()) t.webview.goForward() }
 function reload (hard) {
   const t = activeTab()
@@ -3473,7 +4160,23 @@ const SHORTCUT_ACTIONS = {
   F9: toggleReader,
   'Ctrl+Shift+F': () => S.focus.active ? openFocusPopover() : startFocus(settings().focusMinutes),
   'Ctrl+Shift+X': screenshot,
-  'Ctrl+Shift+N': () => togglePanel('notes'),
+  'Ctrl+Shift+N': () => openPrivate(),
+  'Ctrl+Shift+U': () => togglePanel('notes'),
+  'Ctrl+S': savePage,
+  'Ctrl+O': openFile,
+  'Ctrl+U': () => { const t = activeTab(); if (t && /^(https?|file):/.test(t.url)) createTab({ url: sourceUrl(t.url), spaceId: t.spaceId, afterId: t.id }) },
+  'Ctrl+G': () => findAgain(true),
+  F3: () => findAgain(true),
+  'Ctrl+Shift+G': () => findAgain(false),
+  'Shift+F3': () => findAgain(false),
+  'Ctrl+Shift+Delete': () => openSettings('privacy'),
+  'Ctrl+PageDown': () => cycleTab(1),
+  'Ctrl+PageUp': () => cycleTab(-1),
+  'Ctrl+F4': () => { const t = activeTab(); if (t) closeTab(t.id) },
+  'Ctrl+Shift+B': toggleSidebar,
+  'Alt+Home': () => { const t = activeTab(); if (t) loadInTab(t, NEWTAB) },
+  F6: focusOmnibox,
+  'Ctrl+Shift+A': () => $('#palette').hidden ? openPalette() : closePalette(),
   'Ctrl+Shift+E': () => togglePanel('extensions'),
   'Ctrl+P': () => activeTab()?.ready && activeTab().webview.print(),
   'Ctrl+,': () => openSettings(),
@@ -3536,10 +4239,7 @@ function showNextPermission () {
     const b = e.target.closest('[data-p]'); if (!b) return
     const allow = b.dataset.p === '1'
     const remember = $('#perm-remember').checked
-    A.send('perm:respond', p.id, allow, remember)
-    if (remember) {
-      S.data.permissions[p.origin] = { ...(S.data.permissions[p.origin] || {}), [p.permission]: allow }
-    }
+    A.send('perm:respond', p.id, allow, remember) // gespeicherte Liste kommt per „perm:saved“ zurück
     S.perms.shift()
     showNextPermission()
   }
@@ -3564,6 +4264,9 @@ function initToolbar () {
   $('#btn-reader').onclick = toggleReader
   $('#btn-star').onclick = toggleBookmark
   $('#btn-adblock').onclick = () => S.popover === 'adblock' ? hidePopover() : openAdblockPopover()
+  $('#btn-popup').onclick = openPopupPopover
+  $('#btn-translate').onclick = openTranslatePopover
+  $('#omni-site').onclick = openSitePopover
   $('#btn-vpn').onclick = () => S.popover === 'vpn' ? hidePopover() : openVpnPopover()
   $('#btn-split').innerHTML = icon('split')
   $('#btn-split').onclick = toggleSplit
@@ -3588,14 +4291,14 @@ function flushPending () {
   }
   if (saveSession.t) {
     clearTimeout(saveSession.t)
-    writeSession()
+    writeSession({ refresh: false })
   }
 }
 
 function initGlobalEvents () {
   document.addEventListener('mousedown', e => {
     if (!$('#menu').hidden && !e.target.closest('#menu')) hideMenu()
-    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-adblock, #btn-vpn, #focus-hud, #btn-star')) hidePopover()
+    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-adblock, #btn-vpn, #focus-hud, #btn-star, #btn-popup, #btn-translate, #omni-site')) hidePopover()
   })
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeTopLayer()
@@ -3606,7 +4309,17 @@ function initGlobalEvents () {
   window.addEventListener('resize', closeFloating)
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (settings().theme === 'system') applyTheme() })
   document.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/uri-list')) e.preventDefault() })
-  document.addEventListener('drop', e => {
+  document.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault() })
+  document.addEventListener('drop', async e => {
+    // Dateien aus dem Explorer (HTML, PDF, Bilder …) in neuen Tabs öffnen
+    if (e.dataTransfer.files?.length) {
+      e.preventDefault()
+      for (const f of e.dataTransfer.files) {
+        const url = await A.invoke('app:file-url', A.pathForFile(f)).catch(() => null)
+        if (url) createTab({ url })
+      }
+      return
+    }
     const url = e.dataTransfer.getData('text/uri-list')
     if (url) { e.preventDefault(); createTab({ url }) }
   })
@@ -3614,7 +4327,7 @@ function initGlobalEvents () {
   A.on('shortcut', handleShortcut)
   A.on('open-tab', ({ url, background, opener }) => {
     const openerTab = opener ? tabByWc(opener) : null
-    createTab({ url, background: !!background, spaceId: openerTab?.spaceId || S.activeSpace, afterId: openerTab?.id })
+    createTab({ url, background: !!background, spaceId: openerTab?.spaceId || normalSpaceId(), afterId: openerTab?.id })
   })
   A.on('ctx-action', ({ wcId, action, url, text, prompt }) => {
     const t = tabByWc(wcId)
@@ -3628,9 +4341,12 @@ function initGlobalEvents () {
     if (action === 'claude-selection') sendSelectionToClaude(text, prompt)
     if (action === 'claude-page') sendPageToClaude(prompt)
     if (action === 'markdown') copyPageAsMarkdown()
+    if (action === 'private') openPrivate(url)
+    if (action === 'translate') openTranslatePopover()
+    if (action === 'save-page') savePage()
   })
   A.on('ext:create-tab', async ({ reqId, url, active }) => {
-    const t = createTab({ url: url || NEWTAB, background: !active })
+    const t = createTab({ url: url || NEWTAB, background: !active, spaceId: normalSpaceId() })
     await whenReady(t)
     A.send('ui:reply', reqId, t.wcId)
   })
@@ -3662,29 +4378,31 @@ function initGlobalEvents () {
   A.on('crx:debugger', ({ tabId, attached }) => {
     if (attached) S.agentTabs.add(tabId); else S.agentTabs.delete(tabId)
     const t = tabByWc(tabId)
+    if (t) t.lastActive = Date.now() // nach der Arbeit des Agenten volle Frist bis zum Tab-Schlaf
     if (t) updateTabEl(t)
   })
   // Anfragen des eingebauten MCP-Servers (Claude Code). Tab-IDs = Tab-Nummern der Oberfläche.
   A.on('mcp:ui', async ({ reqId, op, id, url, background }) => {
     const reply = v => A.send('ui:reply', reqId, v)
-    const byNum = n => S.tabs.get('t' + n)
+    // Tabs des privaten Spaces bleiben für Agenten unsichtbar
+    const byNum = n => { const t = S.tabs.get('t' + n); return t && !isPrivateTab(t) ? t : null }
     const missing = n => ({ error: T('Tab {n} existiert nicht. Mit list_tabs die aktuellen IDs abrufen.', { n }) })
     try {
       if (op === 'tabs') {
-        return reply([...S.tabs.values()].map(t => ({
+        return reply([...S.tabs.values()].filter(t => !isPrivateTab(t)).map(t => ({
           id: +t.id.slice(1), title: t.title, url: displayUrl(t.url) || T('Neuer Tab'),
           active: t.id === curSpace().activeId, sleeping: t.sleeping, space: space(t.spaceId)?.name
         })))
       }
       if (op === 'resolve') {
         const t = id ? byNum(id) : activeTab()
-        if (!t) return reply(id ? missing(id) : { error: T('Kein aktiver Tab.') })
+        if (!t || isPrivateTab(t)) return reply(id ? missing(id) : { error: T('Kein aktiver Tab.') })
         if (!t.webview) wake(t)
         await whenReady(t)
         return reply(t.wcId)
       }
       if (op === 'open') {
-        const t = createTab({ url, background: !!background })
+        const t = createTab({ url, background: !!background, spaceId: normalSpaceId() })
         await whenReady(t)
         return reply(+t.id.slice(1))
       }
@@ -3710,11 +4428,28 @@ function initGlobalEvents () {
     const isNew = !S.downloads.has(d.id)
     const prev = S.downloads.get(d.id)
     S.downloads.set(d.id, d)
+    // Abgeschlossene Downloads merken (wie chrome://downloads), private nicht
+    if (d.state !== 'progressing' && !d.private) {
+      const key = `${d.started}|${d.path}`
+      const hist = (S.data.downloadHistory || []).filter(h => h.key !== key)
+      hist.unshift({ key, name: d.name, url: d.url, path: d.path, total: d.total || d.received, state: d.state, started: d.started })
+      S.data.downloadHistory = hist.slice(0, 200)
+      save('downloadHistory')
+    }
     if (isNew) {
       toast('Download gestartet', d.name, 'download', { actions: [{ label: 'Anzeigen', run: () => togglePanel('downloads') }] })
       // Tab, der nur für diesen Download geöffnet wurde, wieder schließen (wie in Chrome)
+      // Hatte der Tab schon eine Seite, bleibt er dort stehen – nur die Adresse wird zurückgesetzt
       const t = d.wcId && tabByWc(d.wcId)
-      if (t && t.url === d.url && !S.data.history.some(h => h.url === d.url)) closeTab(t.id)
+      if (t && t.url === d.url) {
+        const shown = d.pageUrl || ''
+        if (!shown || shown === 'about:blank' || shown === d.url) closeTab(t.id)
+        else {
+          t.url = shown
+          updateTabEl(t)
+          if (t === activeTab()) { updateOmnibox(); updateNav() }
+        }
+      }
     }
     if (prev?.state === 'progressing' && d.state === 'completed') {
       toast('Download abgeschlossen', d.name, 'check', { actions: [{ label: 'Öffnen', run: () => A.send('dl:open', d.path) }], duration: 6000 })
@@ -3723,6 +4458,40 @@ function initGlobalEvents () {
     updateDownloadDot()
   })
   A.on('perm:request', p => { S.perms.push(p); if (S.perms.length === 1) showNextPermission() })
+  A.on('perm:saved', perms => { S.data.permissions = perms })
+  A.on('tab:audible', ({ wcId, audible }) => {
+    const t = tabByWc(wcId)
+    if (t && t.audible !== audible) { t.audible = audible; updateTabEl(t) }
+  })
+  A.on('popup:blocked', ({ wcId, urls }) => {
+    const t = tabByWc(wcId)
+    if (!t) return
+    const isNew = !t.blockedPopups.length
+    t.blockedPopups = urls
+    if (t === activeTab()) {
+      updatePopupButton()
+      if (isNew) $('#btn-popup').animate([{ transform: 'scale(1.35)' }, { transform: 'none' }], { duration: 350 })
+    }
+  })
+  A.on('device:pick', openDevicePicker)
+  A.on('device:update', ({ reqId, devices }) => {
+    if (S.devicePick?.reqId !== reqId) return
+    S.devicePick.devices = devices
+    S.devicePick.render?.()
+  })
+  A.on('cert:override', host => { S.certOverrides.add(host); updateOmnibox() })
+  A.on('pw:offer', offerPassword)
+  A.on('update:state', st => {
+    S.update = st
+    if (S.modalSection === 'about') renderUpdateBox()
+    if (st.status === 'ready' && S.updateNotified !== st.version) {
+      S.updateNotified = st.version
+      toast(T('Update auf Caravel {v} bereit', { v: st.version }), 'Wird beim nächsten Beenden installiert.', 'refresh', {
+        duration: 15000,
+        actions: [{ label: 'Jetzt neu starten', run: () => { flushPending(); A.send('update:install') } }]
+      })
+    }
+  })
   A.on('cast:devices', devs => {
     S.cast.devices = devs
     if (devs.length) S.cast.scanning = false
@@ -3754,7 +4523,7 @@ function startSleepTimer () {
     if (!min) return
     const limit = Date.now() - min * 60000
     for (const t of S.tabs.values()) {
-      if (t.webview && !t.audible && !isVisible(t) && t.lastActive < limit && t !== S.cast.mirror?.tab) sleepTab(t)
+      if (t.webview && !t.audible && !isVisible(t) && t.lastActive < limit && t !== S.cast.mirror?.tab && !S.agentTabs.has(t.wcId)) sleepTab(t)
     }
   }, 30000)
 }
@@ -3786,7 +4555,7 @@ async function boot () {
     S.spaces.push(sp)
     if (settings().restoreSession) {
       for (const t of s.tabs || []) {
-        createTab({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, spaceId: sp.id, sleeping: true, silent: true })
+        createTab({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, spaceId: sp.id, sleeping: true, silent: true, nav: t.nav || null })
       }
       sp.activeId = sp.tabIds[s.activeIndex] || sp.tabIds[0] || null
     }

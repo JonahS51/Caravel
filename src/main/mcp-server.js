@@ -6,7 +6,7 @@
 // Der Server lauscht nur auf 127.0.0.1 und verlangt ein zufälliges Zugangstoken.
 const http = require('node:http')
 const crypto = require('node:crypto')
-const { webContents } = require('electron')
+const { app, webContents } = require('electron')
 
 const PROTOCOL_VERSION = '2025-06-18'
 
@@ -207,7 +207,7 @@ class McpServer {
           return ok({
             protocolVersion: m.params?.protocolVersion || PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: 'caravel-browser', title: 'Caravel Browser', version: '2.0.0' },
+            serverInfo: { name: 'caravel-browser', title: 'Caravel Browser', version: app.getVersion() },
             instructions: 'Steuert den Webbrowser Caravel. Typischer Ablauf: list_tabs oder open_tab → read_page bzw. snapshot → click/fill → erneut snapshot. Tab-IDs stammen aus list_tabs/open_tab; ohne tab_id wird der aktive Tab verwendet.'
           })
         case 'ping':

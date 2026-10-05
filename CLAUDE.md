@@ -9,8 +9,13 @@ GitHub: https://github.com/JonahS51/Caravel (privat, Branch `main`).
 ```powershell
 npm start          # Browser mit dem normalen Profil starten (%APPDATA%\Caravel)
 npm run dist       # Installer bauen → dist\Caravel-Setup-<version>.exe (lädt Tor/wireproxy, erzeugt Symbole)
+npm run release    # wie dist + Upload als Release nach JonahS51/Caravel-Releases (braucht $env:GH_TOKEN)
 node --check <datei>   # schnelle Syntaxprüfung (es gibt keine Testsuite)
 ```
+
+Updates: Installierte Versionen holen neue Versionen per electron-updater aus dem **öffentlichen** Repo
+`JonahS51/Caravel-Releases` (`build.publish` in package.json; Code-Repo bleibt privat). Ein Release braucht
+`Caravel-Setup-<v>.exe`, `.blockmap` und `latest.yml`. Nur nach Rückfrage veröffentlichen.
 
 Git ist unter `C:\Program Files\Git\cmd` installiert (evtl. nicht im PATH der Konsole). Push funktioniert über den
 gespeicherten Git Credential Manager; falls eine Anmeldung nötig ist, muss sie in einem eigenen, sichtbaren
@@ -35,7 +40,16 @@ PowerShell-Fenster ohne `GCM_INTERACTIVE`/`GIT_TERMINAL_PROMPT` laufen.
 - `src/main/cast.js` – Chromecast: mDNS-Erkennung, castv2-Verbindungen, Cast-Apps von Webseiten (Presentation API),
   Tab-/Bildschirmspiegelung als WebM-Live-Stream, Medien/Dateien über den Standard-Medienempfänger
 - `src/main/adblock.js`, `vpn.js` (Tor/WireGuard), `crx-compat.js` (Chrome-APIs für Erweiterungen),
-  `mcp-server.js` (Claude Code/Codex), `autodark.js` (Websites abdunkeln), `store.js` (JSON-Speicher + Standardwerte)
+  `mcp-server.js` (Claude Code/Codex), `autodark.js` (Websites abdunkeln), `store.js` (JSON-Speicher + Standardwerte),
+  `updater.js` (electron-updater), `passwords.js` (Passwörter, DPAPI über safeStorage, `caravel-passwords.json`),
+  `importer.js` (Favoriten/Verlauf aus Chrome/Edge/Brave; Verlauf per `node:sqlite` aus einer Kopie)
+- **Privater Space** (Inkognito): Partition `caravel-private` (ohne `persist:`), Space mit `private: true`, wird nie
+  gespeichert, kein Verlauf, keine Erweiterungen, für MCP-Agenten unsichtbar; der letzte geschlossene Tab löscht die Daten.
+  Neue Funktionen, die Sitzungen betreffen (Handler, Proxy, Werbeblocker, Downloads), immer für **beide** Sitzungen einrichten.
+- **Vor/Zurück-Verlauf** der Tabs (`tab.nav`) wird gespeichert; `navigationHistory.restore()` geht nur vor dem ersten Laden,
+  daher setzt die Oberfläche als Startadresse eine Marke (`about:blank#caravel-restore=…`), die `will-attach-webview` abfängt.
+- `view-source:` funktioniert in Webviews nicht → eigene Seite `caravel://source/?url=…`.
+- Popup-Blocker: `setWindowOpenHandler` erlaubt neue Fenster nur bis 5 s nach einer Nutzereingabe (`input-event`).
 - `src/preload/ui-preload.js` – Brücke der Oberfläche; **neue IPC-Kanäle müssen dort in EVENTS/SENDS/INVOKES**
 - `src/preload/tab-preload.js` – Preload jeder Webseite (sandboxed): Adblock-Scriptlets, Peek, Umgebungsfarbe,
   Neuer-Tab-API (`caravelNTP`), Presentation-API-Nachbau für das Cast SDK
@@ -60,6 +74,8 @@ PowerShell-Fenster ohne `GCM_INTERACTIVE`/`GIT_TERMINAL_PROMPT` laufen.
 ## Datenmodell (Auszug)
 
 - Einstellungen in `store.js` → `DEFAULTS.settings` (neue Optionen dort mit Standardwert eintragen).
+- `sites` (pro Hostname: `zoom`, `popups`, `sound`), `permissions` (pro Origin; Kamera/Mikrofon getrennt als
+  `media-video`/`media-audio`), `downloadHistory`, `pwNever`.
 - Favoriten: `bookmarks` = Favoritenleiste; Einträge `{ id, url, title, favicon }` oder Ordner
   `{ id, folder: true, title, children: [...] }` (eine Ebene). Die Oberfläche ist die Quelle der Wahrheit
   (`S.data.bookmarks`, `saveBookmarks()`); die Neuer-Tab-Seite ändert sie über `ntp:bookmark`.
@@ -69,6 +85,12 @@ PowerShell-Fenster ohne `GCM_INTERACTIVE`/`GIT_TERMINAL_PROMPT` laufen.
 - Nutzt das Tab-Layout **Safari** mit Favoritenleiste.
 - Node.js wird für die Builds gebraucht – nicht deinstallieren, ohne zu fragen.
 - Der Installer ist nicht signiert; Lizenz GPL-3.0 (wegen `electron-chrome-extensions`).
+
+## Testen ohne Klicks (Erfahrungen)
+
+- Native Dialoge (`dialog.showMessageBoxSync`, Speichern-Dialoge) blockieren den Hauptprozess – im Test vermeiden.
+- Echte Nutzereingaben (Popup-Blocker, Passwort-Menü) über `webContents.sendInputEvent` im Hauptprozess senden,
+  vor `mouseDown` ein `mouseMove`.
 
 ## Bekannte Grenzen
 

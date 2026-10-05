@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Seitenquelltext</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; font: 13px/1.55 'Cascadia Code', Consolas, monospace; background: Canvas; color: CanvasText; }
+    header { position: sticky; top: 0; padding: 8px 14px; font: 12px 'Segoe UI', system-ui, sans-serif; background: color-mix(in srgb, Canvas 92%, CanvasText); border-bottom: 1px solid color-mix(in srgb, CanvasText 15%, transparent); display: flex; gap: 12px; align-items: center; }
+    header .url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
+    header label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+    table { border-collapse: collapse; width: 100%; }
+    td { vertical-align: top; padding: 0 12px; }
+    td.n { text-align: right; user-select: none; opacity: .45; width: 1%; white-space: nowrap; }
+    td.c { white-space: pre; }
+    body.wrap td.c { white-space: pre-wrap; word-break: break-all; }
+    .err { padding: 24px; font-family: 'Segoe UI', system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <header><span class="url" id="url"></span><label><input type="checkbox" id="wrap"> <span>Zeilen umbrechen</span></label></header>
+  <table><tbody id="code"></tbody></table>
+  <script src="shared/i18n.js"></script>
+  <script src="source.js"></script>
+</body>
+</html>

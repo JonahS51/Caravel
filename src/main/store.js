@@ -36,7 +36,14 @@ const DEFAULTS = {
     vpnCountry: 'auto',
     vpnServers: [], // { id, name, type: 'socks5'|'http'|'https'|'wireguard', host, port, user, pass, config }
     vpnServerId: null,
-    vpnAutoConnect: false
+    vpnAutoConnect: false,
+    // Updates, Downloads, Passwörter, Übersetzen
+    autoUpdate: true,
+    downloadDir: '', // leer = Windows-Downloadordner
+    downloadAsk: false, // vor jedem Download nach dem Speicherort fragen
+    passwordsEnabled: true,
+    translateOffer: true,
+    translateTarget: '' // leer = Sprache der Oberfläche
   },
   spaces: [
     { id: 'space-personal', name: 'Persönlich', color: '#f2545b', icon: '✦', tabs: [], activeIndex: 0 },
@@ -53,6 +60,10 @@ const DEFAULTS = {
   notes: {},
   snapshots: [],
   permissions: {},
+  // Einstellungen pro Website (Hostname): { zoom, popups: 'allow'|'block', sound: 'mute' }
+  sites: {},
+  downloadHistory: [], // abgeschlossene Downloads (überdauern Neustarts)
+  pwNever: [], // Websites, für die nie Passwörter gespeichert werden sollen
   unpackedExtensions: [],
   stats: { blocked: 0 },
   focusStats: { sessions: 0, minutes: 0 }

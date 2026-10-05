@@ -17,6 +17,9 @@ const { CastManager } = require('./cast')
 const { VpnManager } = require('./vpn')
 const { CrxCompat } = require('./crx-compat')
 const { McpServer } = require('./mcp-server')
+const { Updater } = require('./updater')
+const { PasswordStore } = require('./passwords')
+const importer = require('./importer')
 const i18n = require('../shared/i18n')
 const { t } = i18n
 
@@ -30,6 +33,7 @@ const ICON = path.join(ROOT, 'assets', 'icon.png')
 // Mitgelieferte Programme (Tor, wireproxy) liegen außerhalb der asar-Datei
 const VENDOR_DIR = path.join(ROOT, '..', 'vendor').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
 const PARTITION = 'persist:caravel'
+const PRIVATE_PARTITION = 'caravel-private' // privater Space (Inkognito): ohne „persist:“ nur im Arbeitsspeicher
 const CLAUDE_EXTENSION_ID = 'fcoeoabgfenejglbffodgkkbkcdhcgfn' // „Claude in Chrome“ (Anthropic)
 
 app.setName('Caravel')
@@ -56,6 +60,9 @@ let crx = null
 let mcp = null
 let mcpError = null
 let tabsSession = null
+let privateSession = null
+let updater = null
+let passwords = null
 let uiReady = false
 let peekWcId = null
 let uiAccent = '#f2545b'
@@ -67,6 +74,15 @@ const pendingPermissions = new Map()
 const downloads = new Map()
 let requestSeq = 0
 let pendingCapture = null // Tab-/Bildschirmspiegelung: welche Quelle getDisplayMedia liefern soll
+const lastInput = new Map() // wcId → Zeit der letzten Nutzereingabe (Popup-Blocker)
+const blockedPopups = new Map() // wcId → [URLs]
+const certOverrides = new Map() // Host → Zertifikat-Fingerabdruck, den der Nutzer trotz Fehler zugelassen hat
+const certErrors = new Map() // Host → Fingerabdruck des zuletzt abgelehnten Zertifikats
+const pwOffers = new Map() // Angebot „Passwort speichern?“ → Zugangsdaten (bleiben im Hauptprozess)
+const privatePermissions = {} // Entscheidungen im privaten Space (nur bis zum Beenden)
+const pendingRestores = new Map() // Marke → gespeicherter Vor/Zurück-Verlauf eines Tabs
+const attachQueue = [] // Verläufe der Webviews, die gerade angelegt werden (will-attach → did-attach)
+const RESTORE_MARK = 'about:blank#caravel-restore='
 
 // ---------------------------------------------------------------------------
 // Hilfsfunktionen
@@ -124,6 +140,32 @@ function searchUrl (query) {
   return tpl.replace('%s', encodeURIComponent(query))
 }
 
+// Zurück wie in Chrome: Fehlerseiten (caravel://error) werden als eigener Verlaufseintrag geladen.
+// Der Eintrag davor ist die fehlgeschlagene Adresse – sie würde erneut scheitern und wieder auf der
+// Fehlerseite landen. Deshalb wird sie übersprungen.
+function goBack (wc) {
+  const h = wc.navigationHistory
+  const idx = h.getActiveIndex()
+  let target = idx - 1
+  try {
+    const cur = new URL(wc.getURL())
+    const failed = cur.protocol === 'caravel:' && cur.hostname === 'error' ? cur.searchParams.get('url') : null
+    if (failed && h.getEntryAtIndex(idx - 1)?.url === failed) target = idx - 2
+  } catch {}
+  if (target >= 0) h.goToIndex(target)
+}
+
+function canGoBack (wc) {
+  const h = wc.navigationHistory
+  if (!h.canGoBack()) return false
+  try {
+    const cur = new URL(wc.getURL())
+    if (cur.protocol === 'caravel:' && cur.hostname === 'error' && h.getActiveIndex() < 2 &&
+      h.getEntryAtIndex(h.getActiveIndex() - 1)?.url === cur.searchParams.get('url')) return false
+  } catch {}
+  return true
+}
+
 function uniquePath (dir, name) {
   const ext = path.extname(name)
   const base = path.basename(name, ext) || 'download'
@@ -156,8 +198,13 @@ const SHORTCUTS = new Set([
   'Ctrl+T', 'Ctrl+W', 'Ctrl+Shift+T', 'Ctrl+L', 'Ctrl+K', 'Ctrl+Tab', 'Ctrl+Shift+Tab', 'Ctrl+R', 'F5',
   'Ctrl+Shift+R', 'Ctrl+F', 'F12', 'Ctrl+Shift+I', 'Ctrl+Shift+S', 'Ctrl+D', 'Ctrl++', 'Ctrl+=', 'Ctrl+-',
   'Ctrl+0', 'Alt+ArrowLeft', 'Alt+ArrowRight', 'F11', 'Ctrl+H', 'Ctrl+J', 'Ctrl+B', 'F9', 'Ctrl+Shift+F',
-  'Ctrl+Shift+X', 'Ctrl+Shift+N', 'Ctrl+P', 'Ctrl+,', 'Ctrl+Shift+E', 'Ctrl+E', 'Ctrl+Shift+L'
+  'Ctrl+Shift+X', 'Ctrl+Shift+N', 'Ctrl+P', 'Ctrl+,', 'Ctrl+Shift+E', 'Ctrl+E', 'Ctrl+Shift+L',
+  'Ctrl+Shift+Delete', 'Ctrl+PageUp', 'Ctrl+PageDown', 'Ctrl+F4', 'Ctrl+Shift+B', 'Alt+Home', 'F6',
+  'Ctrl+Shift+A', 'Ctrl+Shift+U'
 ])
+// Wie in Chrome dürfen Webseiten diese Kürzel selbst belegen (z. B. Strg+S in Google Docs): In Tabs meldet
+// sie deshalb das Tab-Preload, und nur, wenn die Seite sie nicht abgefangen hat. In der Oberfläche gelten sie immer.
+const PAGE_SHORTCUTS = new Set(['Ctrl+S', 'Ctrl+O', 'Ctrl+U', 'Ctrl+G', 'Ctrl+Shift+G', 'F3', 'Shift+F3'])
 
 function comboFor (input) {
   if (input.type !== 'keyDown') return null
@@ -178,7 +225,7 @@ function handleShortcuts (wc, isUi) {
     const combo = comboFor(input)
     if (!combo) return
     const digit = /^(Ctrl|Alt)\+([1-9])$/.exec(combo)
-    if (SHORTCUTS.has(combo) || digit || (combo === 'Escape' && !isUi && wc.id === peekWcId)) {
+    if (SHORTCUTS.has(combo) || digit || (isUi && PAGE_SHORTCUTS.has(combo)) || (combo === 'Escape' && !isUi && wc.id === peekWcId)) {
       event.preventDefault()
       send('shortcut', combo)
     }
@@ -203,13 +250,67 @@ function syncActiveTab () {
   try { withSuppressedSelect(() => extensions.selectTab(wc)) } catch {}
 }
 
+const isPrivate = wc => wc.session === privateSession
+const hostOfUrl = url => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' } }
+const siteSetting = (url, key) => store.get('sites')[hostOfUrl(url)]?.[key]
+
+// Popup-Blocker wie in Chrome: neue Fenster/Tabs nur kurz nach einer Eingabe des Nutzers
+// (Klick, Taste, Tippen) – Chromium nennt das „transiente Nutzeraktivierung“ (5 Sekunden)
+const USER_INPUT = new Set(['mouseDown', 'mouseUp', 'keyDown', 'rawKeyDown', 'char', 'gestureTap', 'touchEnd'])
+function popupAllowed (wc, url) {
+  const page = wc.getURL()
+  if (/^(caravel|chrome-extension):/.test(page)) return true
+  const rule = siteSetting(page, 'popups')
+  if (rule === 'allow') return true
+  if (rule !== 'block' && Date.now() - (lastInput.get(wc.id) || 0) < 5000) return true
+  const list = blockedPopups.get(wc.id) || []
+  if (!list.includes(url)) list.push(url)
+  blockedPopups.set(wc.id, list.slice(-10))
+  if (rule !== 'block') send('popup:blocked', { wcId: wc.id, urls: blockedPopups.get(wc.id) })
+  return false
+}
+
 function setupTab (wc) {
-  try { withSuppressedSelect(() => extensions.addTab(wc, win)) } catch (err) { console.warn('[ext] addTab', err) }
-  syncActiveTab()
   const id = wc.id
-  wc.once('destroyed', () => crx.tabRemoved(id))
+  if (!isPrivate(wc)) {
+    // Erweiterungen laufen nicht im privaten Space (wie in Chrome standardmäßig)
+    try { withSuppressedSelect(() => extensions.addTab(wc, win)) } catch (err) { console.warn('[ext] addTab', err) }
+    syncActiveTab()
+    wc.once('destroyed', () => crx.tabRemoved(id))
+  }
+  wc.on('input-event', (_e, input) => { if (USER_INPUT.has(input.type)) lastInput.set(id, Date.now()) })
+  // Ton-Symbol am Tab: Chromiums echter Hörbar-Status (auch bei mehreren Videos, Web Audio, stummen Videos)
+  wc.on('audio-state-changed', e => send('tab:audible', { wcId: id, audible: !!e.audible }))
+  wc.on('did-start-navigation', d => { if (d.isMainFrame && !d.isSameDocument) blockedPopups.delete(id) })
+  wc.once('destroyed', () => { lastInput.delete(id); blockedPopups.delete(id) })
+
+  // beforeunload („Änderungen gehen verloren“): ohne diesen Dialog blockiert Electron die Navigation stumm
+  wc.on('will-prevent-unload', e => {
+    const res = dialog.showMessageBoxSync(win, {
+      type: 'question',
+      buttons: [t('Verlassen'), t('Abbrechen')],
+      defaultId: 0,
+      cancelId: 1,
+      title: t('Website verlassen?'),
+      message: t('Website verlassen?'),
+      detail: t('Möglicherweise werden vorgenommene Änderungen nicht gespeichert.')
+    })
+    if (res === 0) e.preventDefault()
+  })
+
+  // Web Bluetooth: Chromium meldet die Geräteliste mehrfach, während die Suche läuft
+  let btPick = null
+  wc.on('select-bluetooth-device', (event, devices, callback) => {
+    event.preventDefault()
+    const list = devices.map(d => ({ id: d.deviceId, name: d.deviceName || d.deviceId }))
+    if (btPick) { btPick.callback = callback; return send('device:update', { reqId: btPick.reqId, devices: list }) }
+    btPick = { callback }
+    pickDevice('bluetooth', wc.getURL(), list, reqId => { if (btPick) btPick.reqId = reqId })
+      .then(deviceId => { const cb = btPick.callback; btPick = null; cb(deviceId || '') })
+  })
 
   wc.setWindowOpenHandler(({ url, disposition, features }) => {
+    if (!popupAllowed(wc, url)) return { action: 'deny' }
     if (disposition === 'new-window' && features) {
       // Echte Popups (z. B. OAuth-Anmeldungen) brauchen window.opener → eigenes Fenster
       return {
@@ -243,28 +344,48 @@ function showContextMenu (wc, params) {
   const ai = assistantName(store.get('settings'))
   const claude = ai && store.get('settings').claudeSidebar
 
+  // Code im angeklickten Frame (z. B. eingebettetes YouTube-Video) mit Nutzergeste ausführen
+  const inFrame = code => (params.frame || wc.mainFrame).executeJavaScript(code, true).catch(() => {})
+  const videoAt = `(() => { let el = document.elementFromPoint(${params.x}, ${params.y}); while (el && el.tagName !== 'VIDEO') el = el.parentElement;
+    return el || [...document.querySelectorAll('video')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0] })()`
+  const flags = params.mediaFlags || {}
+
   if (params.linkURL) {
-    items.push({ label: t('Link in neuem Tab öffnen'), click: () => send('open-tab', { url: params.linkURL }) })
-    items.push({ label: t('Link im Hintergrund öffnen'), click: () => send('open-tab', { url: params.linkURL, background: true }) })
+    // opener: Links aus dem privaten Space bleiben dort
+    items.push({ label: t('Link in neuem Tab öffnen'), click: () => send('open-tab', { url: params.linkURL, opener: wc.id }) })
+    items.push({ label: t('Link im Hintergrund öffnen'), click: () => send('open-tab', { url: params.linkURL, background: true, opener: wc.id }) })
+    if (!isPrivate(wc)) items.push({ label: t('Link im privaten Space öffnen'), click: action('private', { url: params.linkURL }) })
     items.push({ label: t('Peek – schwebende Vorschau'), click: action('peek', { url: params.linkURL }) })
     items.push({ label: t('In Split View öffnen'), click: action('split', { url: params.linkURL }) })
+    items.push({ label: t('Link speichern unter …'), click: () => wc.downloadURL(params.linkURL) })
     items.push({ label: t('Link-Adresse kopieren'), click: () => clipboard.writeText(params.linkURL) })
     sep()
   }
   if (params.mediaType === 'image' && params.srcURL) {
-    items.push({ label: t('Bild in neuem Tab öffnen'), click: () => send('open-tab', { url: params.srcURL }) })
+    items.push({ label: t('Bild in neuem Tab öffnen'), click: () => send('open-tab', { url: params.srcURL, opener: wc.id }) })
     items.push({ label: t('Bild speichern'), click: () => wc.downloadURL(params.srcURL) })
     items.push({ label: t('Bild kopieren'), click: () => wc.copyImageAt(params.x, params.y) })
     items.push({ label: t('Bildadresse kopieren'), click: () => clipboard.writeText(params.srcURL) })
     sep()
   }
+  if (params.mediaType === 'video') {
+    items.push({
+      label: flags.isShowingPictureInPicture ? t('Bild-im-Bild beenden') : t('Bild-im-Bild'),
+      click: () => inFrame(`(() => { const v = ${videoAt}; if (!v) return; return document.pictureInPictureElement === v ? document.exitPictureInPicture() : v.requestPictureInPicture() })()`)
+    })
+    items.push({ label: t('Endlosschleife'), type: 'checkbox', checked: !!flags.isLooping, click: () => inFrame(`(() => { const v = ${videoAt}; if (v) v.loop = !v.loop })()`) })
+    if (flags.canToggleControls) {
+      items.push({ label: t('Steuerelemente anzeigen'), type: 'checkbox', checked: !!flags.isControlsVisible, click: () => inFrame(`(() => { const v = ${videoAt}; if (v) v.controls = !v.controls })()`) })
+    }
+  }
   if ((params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
     if (!params.srcURL.startsWith('blob:')) {
       items.push({ label: t('Medium streamen …'), click: action('cast', { url: params.srcURL }) })
+      if (flags.canSave !== false) items.push({ label: params.mediaType === 'video' ? t('Video speichern unter …') : t('Audio speichern unter …'), click: () => wc.downloadURL(params.srcURL) })
     }
     items.push({ label: t('Medienadresse kopieren'), click: () => clipboard.writeText(params.srcURL) })
     sep()
-  }
+  } else if (params.mediaType === 'video') sep()
   if (params.isEditable) {
     for (const s of params.dictionarySuggestions || []) {
       items.push({ label: s, click: () => wc.replaceMisspelling(s) })
@@ -286,12 +407,12 @@ function showContextMenu (wc, params) {
       items.push({ label: t('Mit {ai} erklären', { ai }), click: action('claude-selection', { text, prompt: 'explain' }) })
       items.push({ label: t('Mit {ai} übersetzen', { ai }), click: action('claude-selection', { text, prompt: 'translate' }) })
     }
-    items.push({ label: t('Im Web nach „{q}“ suchen', { q: short }), click: () => send('open-tab', { url: searchUrl(text) }) })
+    items.push({ label: t('Im Web nach „{q}“ suchen', { q: short }), click: () => send('open-tab', { url: searchUrl(text), opener: wc.id }) })
     items.push({ label: t('Als Notiz zu dieser Seite speichern'), click: action('note', { text }) })
     sep()
   }
   if (!params.linkURL && !params.isEditable && !params.selectionText && params.mediaType === 'none') {
-    items.push({ label: t('Zurück'), enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() })
+    items.push({ label: t('Zurück'), enabled: canGoBack(wc), click: () => goBack(wc) })
     items.push({ label: t('Vorwärts'), enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() })
     items.push({ label: t('Neu laden'), click: () => wc.reload() })
     sep()
@@ -299,11 +420,14 @@ function showContextMenu (wc, params) {
       items.push({ label: t('Seite mit {ai} zusammenfassen', { ai }), click: action('claude-page', { prompt: 'summarize' }) })
       items.push({ label: t('Seite an {ai} übergeben', { ai }), click: action('claude-page', { prompt: 'context' }) })
     }
+    if (/^https?:/.test(wc.getURL())) items.push({ label: t('Übersetzen …'), click: action('translate') })
+    items.push({ label: t('Speichern unter …'), click: action('save-page') })
+    items.push({ label: t('Drucken …'), click: () => wc.print() })
     items.push({ label: t('Seite als Markdown kopieren'), click: action('markdown') })
     items.push({ label: t('Leser-Modus'), click: action('reader') })
     items.push({ label: t('Screenshot aufnehmen'), click: action('screenshot') })
     items.push({ label: t('Streamen …'), click: action('cast') })
-    items.push({ label: t('Seitenquelltext anzeigen'), click: () => send('open-tab', { url: 'view-source:' + wc.getURL() }) })
+    items.push({ label: t('Seitenquelltext anzeigen'), click: () => send('open-tab', { url: 'caravel://source/?url=' + encodeURIComponent(wc.getURL()), opener: wc.id }) })
     sep()
   }
 
@@ -343,7 +467,7 @@ function createWindow () {
   })
 
   win.webContents.on('will-attach-webview', (event, prefs, params) => {
-    if (!String(params.partition || '').startsWith(PARTITION)) return event.preventDefault()
+    if (![PARTITION, PRIVATE_PARTITION].includes(String(params.partition || ''))) return event.preventDefault()
     prefs.preload = TAB_PRELOAD
     prefs.contextIsolation = true
     prefs.nodeIntegration = false
@@ -355,8 +479,19 @@ function createWindow () {
     // Electron-Webviews sind sonst durchsichtig: Seiten ohne eigene Hintergrundfarbe zeigten dann
     // dunklen Browser-Hintergrund mit schwarzem Text.
     prefs.transparent = false
+    // Gespeicherter Verlauf: nichts laden, sondern direkt nach dem Anlegen wiederherstellen
+    const src = String(params.src || '')
+    const nav = src.startsWith(RESTORE_MARK) ? pendingRestores.get(src.slice(RESTORE_MARK.length)) : null
+    if (nav) { pendingRestores.delete(src.slice(RESTORE_MARK.length)); params.src = '' }
+    attachQueue.push(nav)
   })
-  win.webContents.on('did-attach-webview', (_e, wc) => setupTab(wc))
+  win.webContents.on('did-attach-webview', (_e, wc) => {
+    const nav = attachQueue.shift()
+    if (nav) {
+      wc.navigationHistory.restore(nav).catch(() => wc.loadURL(nav.entries[nav.index].url).catch(() => {}))
+    }
+    setupTab(wc)
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     openUrlInUi(url)
     return { action: 'deny' }
@@ -371,6 +506,23 @@ function createWindow () {
   win.on('enter-full-screen', () => send('window-fullscreen', true))
   win.on('leave-full-screen', () => send('window-fullscreen', false))
   win.once('ready-to-show', () => win.show())
+  // Wie Chrome: vor dem Schließen warnen, solange Downloads laufen
+  let closeConfirmed = false
+  win.on('close', e => {
+    const running = [...downloads.values()].filter(item => item.getState() === 'progressing').length
+    if (!running || closeConfirmed) return
+    const res = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: [t('Downloads abbrechen und beenden'), t('Weiter herunterladen')],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Caravel',
+      message: running === 1 ? t('Ein Download läuft noch.') : t('{n} Downloads laufen noch.', { n: running }),
+      detail: t('Wenn du Caravel jetzt beendest, werden sie abgebrochen.')
+    })
+    if (res === 1) return e.preventDefault()
+    closeConfirmed = true
+  })
   win.on('closed', () => { win = null })
 
   win.loadFile(path.join(ROOT, 'ui', 'index.html'))
@@ -410,8 +562,9 @@ function extensionInfo (ext) {
 }
 
 async function setupExtensions () {
-  crx = new CrxCompat({ session: tabsSession, getWindow: () => win, sendUi: send })
+  crx = new CrxCompat({ session: tabsSession, getWindow: () => win, sendUi: send, dataDir: app.getPath('userData') })
   crx.activeTabId = () => uiActiveWcId
+  crx.onAgentInput = wcId => lastInput.set(wcId, Date.now())
   // Farbschema wie Chrome als Client Hint mitsenden – Google & Co. wählen Hell/Dunkel auf dem Server
   // Außerdem die Standard-Client-Hints, die Electron bei Seitenaufrufen weglässt (ohne sie liefert
   // z. B. Google die einfache Variante für unbekannte Browser aus – ohne Dunkelmodus)
@@ -520,14 +673,30 @@ async function setupExtensions () {
 // ---------------------------------------------------------------------------
 // Downloads
 
+function downloadDir () {
+  const dir = store.get('settings').downloadDir
+  return dir && fs.existsSync(dir) ? dir : app.getPath('downloads')
+}
+
 function setupDownloads () {
   let seq = 0
-  tabsSession.on('will-download', (_e, item, wc) => {
+  const onDownload = (_e, item, wc) => {
     const id = ++seq
     const wcId = wc && !wc.isDestroyed() ? wc.id : null
-    if (!item.getSavePath()) item.setSavePath(uniquePath(app.getPath('downloads'), item.getFilename()))
+    const priv = !!wc && !wc.isDestroyed() && isPrivate(wc)
+    // Seite, die der Tab tatsächlich anzeigt (zuletzt bestätigter Verlaufseintrag) – leer, wenn der Tab
+    // nur für diesen Download geöffnet wurde und dann geschlossen werden kann
+    let pageUrl = ''
+    try { const h = wc.navigationHistory; pageUrl = h.getEntryAtIndex(h.getActiveIndex())?.url || '' } catch {}
+    // „Immer fragen“: ohne festen Pfad zeigt Electron selbst den Speichern-Dialog
+    if (!item.getSavePath()) {
+      if (store.get('settings').downloadAsk) item.setSaveDialogOptions({ defaultPath: path.join(downloadDir(), item.getFilename()) })
+      else item.setSavePath(uniquePath(downloadDir(), item.getFilename()))
+    }
     downloads.set(id, item)
     const info = () => ({
+      private: priv,
+      pageUrl,
       id,
       name: path.basename(item.getSavePath()),
       url: item.getURL(),
@@ -551,8 +720,11 @@ function setupDownloads () {
     item.once('done', () => {
       send('dl:update', info())
       updateTaskbarProgress()
+      downloads.delete(id)
     })
-  })
+  }
+  tabsSession.on('will-download', onDownload)
+  privateSession.on('will-download', onDownload)
 }
 
 function updateTaskbarProgress () {
@@ -571,18 +743,84 @@ function updateTaskbarProgress () {
 
 const AUTO_ALLOW = new Set(['fullscreen', 'clipboard-sanitized-write', 'pointerLock', 'keyboardLock', 'window-management', 'speaker-selection'])
 
+// Gespeicherte Schlüssel einer Anfrage: Kamera und Mikrofon getrennt („media-video“, „media-audio“),
+// sonst gäbe eine Erlaubnis nur fürs Mikrofon der Seite später auch die Kamera frei
+function permissionKeys (permission, mediaTypes) {
+  if (permission !== 'media') return [permission]
+  const types = (mediaTypes || []).filter(m => m === 'audio' || m === 'video')
+  return (types.length ? types : ['audio', 'video']).map(m => `media-${m}`)
+}
+
 function setupPermissions () {
-  let seq = 0
-  tabsSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-    const origin = (() => { try { return new URL(details.requestingUrl).origin } catch { return '' } })()
-    if (AUTO_ALLOW.has(permission) || origin.startsWith('chrome-extension://') || origin.startsWith('caravel://')) {
-      return callback(true)
+  // Alte Einträge „media“ unterschieden nicht zwischen Kamera und Mikrofon → verwerfen, neu fragen
+  const stored = store.get('permissions')
+  if (Object.values(stored).some(p => 'media' in p)) {
+    const cleaned = {}
+    for (const [origin, p] of Object.entries(stored)) {
+      const { media, ...rest } = p
+      if (Object.keys(rest).length) cleaned[origin] = rest
     }
-    const saved = store.get('permissions')[origin]?.[permission]
-    if (typeof saved === 'boolean') return callback(saved)
-    const id = ++seq
-    pendingPermissions.set(id, { callback, origin, permission })
-    send('perm:request', { id, origin, permission, mediaTypes: details.mediaTypes || [], wcId: wc?.id })
+    store.set('permissions', cleaned)
+  }
+
+  let seq = 0
+  const originOf = url => { try { return new URL(url).origin } catch { return '' } }
+  // Gespeicherte Entscheidung: im privaten Space zuerst die flüchtigen, gespeicherte Sperren gelten aber auch dort
+  const decision = (priv, origin, key) => {
+    const saved = store.get('permissions')[origin]?.[key]
+    if (!priv) return saved
+    const temp = privatePermissions[origin]?.[key]
+    return saved === false ? false : temp
+  }
+
+  for (const ses of [tabsSession, privateSession]) {
+    const priv = ses === privateSession
+    ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+      const origin = originOf(details.requestingUrl)
+      if (AUTO_ALLOW.has(permission) || origin.startsWith('chrome-extension://') || origin.startsWith('caravel://')) {
+        return callback(true)
+      }
+      const keys = permissionKeys(permission, details.mediaTypes)
+      const saved = keys.map(k => decision(priv, origin, k))
+      if (saved.includes(false)) return callback(false)
+      if (saved.every(v => v === true)) return callback(true)
+      const id = ++seq
+      pendingPermissions.set(id, { callback, origin, permission, keys, priv })
+      send('perm:request', { id, origin, permission, mediaTypes: details.mediaTypes || [], wcId: wc?.id })
+    })
+    // Abfragen wie Notification.permission: nur gespeicherte Sperren melden. Pauschal „false“ würde Seiten
+    // brechen; ohne Entscheidung bleibt es bei „erlaubt“ – die eigentliche Anfrage fragt dann nach.
+    ses.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
+      const origin = originOf(details?.requestingUrl || requestingOrigin)
+      const keys = permissionKeys(permission, details?.mediaType ? [details.mediaType] : [])
+      return !keys.some(k => decision(priv, origin, k) === false)
+    })
+    // Geräteauswahl für WebHID, WebUSB und Web Serial (Bluetooth: siehe setupTab)
+    ses.on('select-hid-device', (event, details, callback) => {
+      event.preventDefault()
+      pickDevice('hid', details.frame?.url, details.deviceList.map(d => ({ id: d.deviceId, name: d.name || `HID ${d.vendorId}:${d.productId}` }))).then(id => callback(id || null))
+    })
+    ses.on('select-usb-device', (event, details, callback) => {
+      event.preventDefault()
+      pickDevice('usb', details.frame?.url, details.deviceList.map(d => ({ id: d.deviceId, name: [d.manufacturerName, d.productName].filter(Boolean).join(' ') || `USB ${d.vendorId}:${d.productId}` }))).then(id => callback(id || undefined))
+    })
+    ses.on('select-serial-port', (event, portList, wc, callback) => {
+      event.preventDefault()
+      pickDevice('serial', wc?.getURL(), portList.map(p => ({ id: p.portId, name: p.displayName || p.portName }))).then(id => callback(id || ''))
+    })
+  }
+}
+
+// Auswahldialog der Oberfläche für Geräte; onId erhält die Anfragenummer (für spätere Listen-Updates)
+function pickDevice (kind, url, devices, onId) {
+  return new Promise(resolve => {
+    const id = ++requestSeq
+    pendingRequests.set(id, resolve)
+    onId?.(id)
+    let origin = ''
+    try { origin = new URL(url).host } catch {}
+    send('device:pick', { reqId: id, kind, origin, devices })
+    setTimeout(() => { if (pendingRequests.delete(id)) resolve(null) }, 120000)
   })
 }
 
@@ -636,6 +874,193 @@ function registerIpc () {
     const wc = webContents.fromId(wcId)
     if (wc) { vpn.track(wc); autodark.track(wc) }
   })
+
+  ipcMain.on('tab:back', (_e, wcId) => {
+    const wc = webContents.fromId(wcId)
+    if (wc && !wc.isDestroyed()) goBack(wc)
+  })
+
+  // Vor/Zurück-Verlauf der Tabs sichern und wiederherstellen (Sitzung, Tab-Schlaf). Den Seitenzustand
+  // (Scrollposition, Formulare) nur für den aktuellen Eintrag behalten – sonst wird die Sitzung riesig.
+  ipcMain.handle('tab:history', (_e, wcIds) => {
+    const out = {}
+    for (const id of [].concat(wcIds)) {
+      const wc = webContents.fromId(id)
+      if (!wc || wc.isDestroyed()) continue
+      const h = wc.navigationHistory
+      const all = h.getAllEntries()
+      const index = h.getActiveIndex()
+      const from = Math.max(0, index - 24)
+      const entries = all.slice(from, index + 6).map((e, i) => ({ url: e.url, title: e.title, ...(from + i === index && e.pageState ? { pageState: e.pageState } : {}) }))
+      if (entries.length) out[id] = { index: index - from, entries }
+    }
+    return out
+  })
+  // Wiederherstellen geht nur, solange die Webview noch nichts geladen hat: Die Oberfläche hinterlegt den
+  // Verlauf hier und setzt als Startadresse eine Marke, die will-attach-webview abfängt (siehe createWindow).
+  ipcMain.handle('tab:prepare-restore', (_e, nav) => {
+    const entries = (nav?.entries || []).filter(e => typeof e?.url === 'string' && !/^(javascript|data):/i.test(e.url))
+    if (!entries.length) return null
+    const token = require('node:crypto').randomBytes(8).toString('hex')
+    pendingRestores.set(token, { index: Math.min(Math.max(0, nav.index | 0), entries.length - 1), entries })
+    setTimeout(() => pendingRestores.delete(token), 60000)
+    return token
+  })
+
+  // Seite speichern (Strg+S) und Datei öffnen (Strg+O)
+  ipcMain.handle('tab:save-page', async (_e, wcId) => {
+    const wc = webContents.fromId(wcId)
+    if (!wc || wc.isDestroyed()) return null
+    const name = (wc.getTitle() || 'Seite').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 120) || 'Seite'
+    const res = await dialog.showSaveDialog(win, {
+      title: t('Seite speichern unter'),
+      defaultPath: path.join(downloadDir(), name + '.html'),
+      filters: [
+        { name: t('Webseite, vollständig'), extensions: ['html'] },
+        { name: t('Webseite, nur HTML'), extensions: ['htm'] },
+        { name: t('Webseite, eine Datei (MHTML)'), extensions: ['mhtml'] }
+      ]
+    })
+    if (res.canceled || !res.filePath) return null
+    const ext = path.extname(res.filePath).toLowerCase()
+    await wc.savePage(res.filePath, ext === '.mhtml' ? 'MHTML' : ext === '.htm' ? 'HTMLOnly' : 'HTMLComplete')
+    return res.filePath
+  })
+  ipcMain.handle('app:open-file', async () => {
+    const res = await dialog.showOpenDialog(win, {
+      title: t('Datei öffnen'),
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: t('Webseiten, PDFs und Bilder'), extensions: ['html', 'htm', 'mhtml', 'pdf', 'svg', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'json', 'xml'] }, { name: t('Alle Dateien'), extensions: ['*'] }]
+    })
+    return res.canceled ? [] : res.filePaths.map(f => pathToFileURL(f).href)
+  })
+  ipcMain.handle('app:file-url', (_e, file) => {
+    try { return fs.statSync(file).isFile() ? pathToFileURL(file).href : null } catch { return null }
+  })
+  ipcMain.handle('app:pick-folder', async (_e, current) => {
+    const res = await dialog.showOpenDialog(win, { title: t('Download-Ordner wählen'), defaultPath: current || downloadDir(), properties: ['openDirectory', 'createDirectory'] })
+    return res.canceled ? null : res.filePaths[0]
+  })
+
+  // Popups, die der Blocker angehalten hat, auf Wunsch doch öffnen
+  ipcMain.on('popup:open', (_e, wcId, url) => {
+    const list = blockedPopups.get(wcId) || []
+    if (list.includes(url)) send('open-tab', { url, opener: wcId })
+  })
+
+  // Privater Space: alle Daten verwerfen (wenn der letzte private Tab geschlossen wird)
+  ipcMain.handle('private:clear', async () => {
+    await privateSession.clearStorageData()
+    await privateSession.clearCache()
+    await privateSession.clearAuthCache()
+    for (const k of Object.keys(privatePermissions)) delete privatePermissions[k]
+    return true
+  })
+
+  // Website-Daten einer einzelnen Website löschen (Website-Einstellungen)
+  ipcMain.handle('site:clear-data', async (_e, origin) => {
+    if (!/^https?:\/\/[^/]+$/.test(origin)) return false
+    await tabsSession.clearStorageData({ origin })
+    return true
+  })
+
+  // Zertifikatsfehler: „Trotzdem fortfahren“ auf der Fehlerseite (nur für das zuletzt abgelehnte Zertifikat)
+  ipcMain.handle('cert:proceed', (e, url) => {
+    if (!e.senderFrame?.url?.startsWith('caravel://error')) return false
+    let host
+    try { host = new URL(url).host } catch { return false }
+    const fp = certErrors.get(host)
+    if (!fp) return false
+    certOverrides.set(host, fp)
+    send('cert:override', host)
+    // Vom Hauptprozess laden: eine Navigation, die die Fehlerseite selbst startet, scheitert trotz Ausnahme
+    setImmediate(() => { if (!e.sender.isDestroyed()) e.sender.loadURL(url).catch(() => {}) })
+    return true
+  })
+
+  // Seitenquelltext für caravel://source (mit den Cookies der Sitzung des Tabs, wie Chromes view-source:)
+  ipcMain.handle('page:source', async (e, url) => {
+    if (!e.senderFrame?.url?.startsWith('caravel://source')) return null
+    if (!/^(https?|file):/i.test(String(url))) return null
+    const res = await e.sender.session.fetch(url, { cache: 'force-cache' })
+    const text = await res.text()
+    return text.length > 5e6 ? text.slice(0, 5e6) : text
+  })
+
+  // Updates
+  ipcMain.handle('update:state', () => updater.state)
+  ipcMain.handle('update:check', () => updater.check())
+  ipcMain.on('update:install', () => updater.install())
+
+  // Passwort-Manager – Oberfläche (Verwaltung)
+  ipcMain.handle('pw:list', () => ({ available: passwords.available, items: passwords.list(), never: store.get('pwNever') }))
+  ipcMain.handle('pw:reveal', (_e, id) => passwords.reveal(id)?.password ?? null)
+  ipcMain.handle('pw:delete', (_e, id) => { passwords.remove(id); return true })
+  ipcMain.handle('pw:update', (_e, id, data) => passwords.update(id, data || {}))
+  ipcMain.handle('pw:never-remove', (_e, origin) => { store.set('pwNever', store.get('pwNever').filter(o => o !== origin)); return true })
+  ipcMain.handle('pw:import', async () => {
+    const res = await dialog.showOpenDialog(win, { title: t('Passwörter importieren (CSV)'), properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }] })
+    if (res.canceled || !res.filePaths[0]) return null
+    return passwords.importCsv(fs.readFileSync(res.filePaths[0], 'utf8'))
+  })
+  ipcMain.handle('pw:export', async () => {
+    const res = await dialog.showSaveDialog(win, { title: t('Passwörter exportieren (CSV)'), defaultPath: path.join(app.getPath('documents'), 'Caravel-Passwörter.csv'), filters: [{ name: 'CSV', extensions: ['csv'] }] })
+    if (res.canceled || !res.filePath) return null
+    fs.writeFileSync(res.filePath, passwords.exportCsv(), { mode: 0o600 })
+    return res.filePath
+  })
+  ipcMain.on('pw:offer-reply', (_e, offerId, choice) => {
+    const offer = pwOffers.get(offerId)
+    pwOffers.delete(offerId)
+    if (!offer) return
+    if (choice === 'save') passwords.upsert(offer)
+    if (choice === 'never') store.set('pwNever', [...new Set([...store.get('pwNever'), offer.origin])])
+  })
+
+  // Passwort-Manager – Webseiten (tab-preload.js). Herkunft immer aus dem sendenden Frame, nie aus der Nachricht.
+  const pwOrigin = e => {
+    if (e.sender.session !== tabsSession || !store.get('settings').passwordsEnabled || !passwords.available) return null
+    return PasswordStore.origin(e.senderFrame?.url || '')
+  }
+  ipcMain.handle('pw:query', e => {
+    const origin = pwOrigin(e)
+    return origin ? passwords.forOrigin(origin) : []
+  })
+  ipcMain.handle('pw:fill', (e, id) => {
+    const origin = pwOrigin(e)
+    const item = origin && passwords.reveal(id)
+    if (!item || item.origin !== origin) return null
+    passwords.touch(id)
+    return { username: item.username, password: item.password }
+  })
+  ipcMain.on('pw:submitted', (e, data) => {
+    const origin = pwOrigin(e)
+    const username = String(data?.username || '').slice(0, 300)
+    const password = String(data?.password || '')
+    if (!origin || !password || password.length > 1000 || store.get('pwNever').includes(origin)) return
+    const kind = passwords.compare(origin, username, password)
+    if (kind === 'same') return
+    // dieselbe Anmeldung kann mehrfach gemeldet werden (Klick + Absenden) – nur ein Angebot zeigen
+    for (const o of pwOffers.values()) if (o.origin === origin && o.username === username && o.password === password) return
+    const offerId = require('node:crypto').randomUUID()
+    pwOffers.set(offerId, { origin, username, password })
+    setTimeout(() => pwOffers.delete(offerId), 10 * 60 * 1000)
+    send('pw:offer', { offerId, origin, username, update: kind === 'update', wcId: e.sender.id })
+  })
+
+  // Import aus Chrome, Edge, Brave
+  ipcMain.handle('import:sources', () => importer.sources())
+  ipcMain.handle('import:run', (_e, sourceId, what) => {
+    const out = {}
+    let n = 0
+    const newId = () => 'bm-' + Date.now().toString(36) + (n++).toString(36) + Math.random().toString(36).slice(2, 5)
+    if (what?.bookmarks) out.bookmarks = importer.bookmarks(sourceId, newId)
+    if (what?.history) out.history = importer.history(sourceId)
+    return out
+  })
+
+  // Kürzel, die die Webseite nicht selbst abgefangen hat (siehe PAGE_SHORTCUTS)
+  ipcMain.on('page-shortcut', (_e, combo) => { if (PAGE_SHORTCUTS.has(combo)) send('shortcut', combo) })
 
   ipcMain.on('tab:activated', (_e, wcId) => {
     uiActiveWcId = wcId
@@ -768,6 +1193,9 @@ function registerIpc () {
   // Downloads
   ipcMain.on('dl:open', (_e, file) => shell.openPath(file))
   ipcMain.on('dl:show', (_e, file) => shell.showItemInFolder(file))
+  ipcMain.on('dl:retry', (_e, url, priv) => {
+    if (/^https?:/.test(url)) (priv ? privateSession : tabsSession).downloadURL(url)
+  })
   ipcMain.on('dl:control', (_e, id, action) => {
     const item = downloads.get(id)
     if (!item) return
@@ -782,10 +1210,16 @@ function registerIpc () {
     if (!p) return
     pendingPermissions.delete(id)
     p.callback(!!allow)
-    if (remember) {
+    if (remember && p.priv) {
+      // privater Space: nur bis zum Beenden merken
+      privatePermissions[p.origin] = { ...(privatePermissions[p.origin] || {}) }
+      for (const k of p.keys) privatePermissions[p.origin][k] = !!allow
+    } else if (remember) {
       const perms = { ...store.get('permissions') }
-      perms[p.origin] = { ...(perms[p.origin] || {}), [p.permission]: !!allow }
+      perms[p.origin] = { ...(perms[p.origin] || {}) }
+      for (const k of p.keys) perms[p.origin][k] = !!allow
       store.set('permissions', perms)
+      send('perm:saved', perms) // die Oberfläche hält eine Kopie (Einstellungen › Privatsphäre)
     }
   })
 
@@ -896,6 +1330,7 @@ function registerIpc () {
     const s = store.get('settings')
     return {
       lang: i18n.lang,
+      private: e.sender.session === privateSession,
       userName: s.userName,
       searchEngine: s.searchEngine,
       accent: uiAccent,
@@ -976,6 +1411,7 @@ function setupCastCapture () {
 // Claude Code / Codex: eingebauter MCP-Server
 const agentTimers = new Map()
 function markAgent (wcId) {
+  lastInput.set(wcId, Date.now()) // Klicks des Agenten zählen für den Popup-Blocker als Nutzereingabe
   send('crx:debugger', { tabId: wcId, attached: true })
   clearTimeout(agentTimers.get(wcId))
   agentTimers.set(wcId, setTimeout(() => { agentTimers.delete(wcId); send('crx:debugger', { tabId: wcId, attached: false }) }, 20000))
@@ -1042,6 +1478,19 @@ app.on('second-instance', (_e, argv) => {
   if (win) { if (win.isMinimized()) win.restore(); win.focus() }
 })
 
+// Ungültige Zertifikate: standardmäßig ablehnen (Fehlerseite). „Trotzdem fortfahren“ auf der Fehlerseite
+// lässt genau dieses Zertifikat für den Host bis zum Beenden zu (wie in Chrome).
+app.on('certificate-error', (event, _wc, url, _error, certificate, callback) => {
+  let host = ''
+  try { host = new URL(url).host } catch {}
+  if (host && certOverrides.get(host) === certificate.fingerprint) {
+    event.preventDefault()
+    return callback(true)
+  }
+  if (host) certErrors.set(host, certificate.fingerprint)
+  callback(false)
+})
+
 // Anmeldedaten für HTTP(S)-Proxys eigener VPN-Server
 app.on('login', (event, _wc, _details, authInfo, callback) => {
   if (!authInfo.isProxy) return
@@ -1057,28 +1506,32 @@ app.whenReady().then(async () => {
   // Neue Installation: Namen der Standard-Spaces in der Sprache der Oberfläche
   if (store.fresh) store.set('spaces', store.get('spaces').map(sp => ({ ...sp, name: t(sp.name) })))
   tabsSession = session.fromPartition(PARTITION)
+  privateSession = session.fromPartition(PRIVATE_PARTITION)
 
   const ua = cleanUserAgent(tabsSession.getUserAgent())
-  // Bevorzugte Sprachen für Websites (Accept-Language) passend zur Oberfläche
-  tabsSession.setUserAgent(ua, i18n.lang === 'en' ? 'en-US,en;q=0.9' : 'de-DE,de;q=0.9,en;q=0.8')
   app.userAgentFallback = ua
-
-  try {
-    const langs = tabsSession.availableSpellCheckerLanguages
-    const prefer = i18n.lang === 'en' ? ['en-US', 'de-DE', 'de'] : ['de-DE', 'de', 'en-US']
-    tabsSession.setSpellCheckerLanguages(prefer.filter(l => langs.includes(l)).slice(0, 2))
-  } catch {}
-
-  registerOdeProtocol(tabsSession)
+  for (const ses of [tabsSession, privateSession]) {
+    // Bevorzugte Sprachen für Websites (Accept-Language) passend zur Oberfläche
+    ses.setUserAgent(ua, i18n.lang === 'en' ? 'en-US,en;q=0.9' : 'de-DE,de;q=0.9,en;q=0.8')
+    try {
+      const langs = ses.availableSpellCheckerLanguages
+      const prefer = i18n.lang === 'en' ? ['en-US', 'de-DE', 'de'] : ['de-DE', 'de', 'en-US']
+      ses.setSpellCheckerLanguages(prefer.filter(l => langs.includes(l)).slice(0, 2))
+    } catch {}
+    registerOdeProtocol(ses)
+  }
   registerOdeProtocol(session.defaultSession)
+
+  updater = new Updater({ send, getSettings: () => store.get('settings') })
+  passwords = new PasswordStore(app.getPath('userData'))
 
   focusGuard = new FocusGuard(url => `caravel://blocked/?url=${encodeURIComponent(url)}`)
   cast = new CastManager(send)
   cast.discovery.start() // wie Chrome: Geräte im Hintergrund suchen, damit Cast-Knöpfe sofort erscheinen
   setupCastCapture()
-  vpn = new VpnManager({ session: tabsSession, dataDir: app.getPath('userData'), vendorDir: VENDOR_DIR })
+  vpn = new VpnManager({ session: tabsSession, extraSessions: [privateSession, session.defaultSession], dataDir: app.getPath('userData'), vendorDir: VENDOR_DIR })
   vpn.on('state', state => send('vpn:state', state))
-  adblock = new AdBlock(path.join(app.getPath('userData'), 'AdBlock'), tabsSession)
+  adblock = new AdBlock(path.join(app.getPath('userData'), 'AdBlock'), [tabsSession, privateSession])
   adblock.onBlocked = (wcId, count, total) => send('adblock:blocked', { wcId, count, total })
   if (process.env.CARAVEL_DEBUG) globalThis.__debug = { adblock, vpn, cast, get crx () { return crx }, get extensions () { return extensions } }
 
@@ -1101,8 +1554,15 @@ app.whenReady().then(async () => {
   setupPermissions()
   await setupExtensions()
 
+  // Client Hints (Farbschema usw.) auch im privaten Space – dort ohne Erweiterungs-Header-Regeln
+  privateSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, cb) => {
+    const headers = { ...details.requestHeaders }
+    cb(crx.extraHeaders(details, headers) ? { requestHeaders: headers } : {})
+  })
+
   Menu.setApplicationMenu(null)
   createWindow()
+  updater.start()
 
   const initial = urlFromArgv(process.argv)
   if (initial) pendingUrls.push(initial)

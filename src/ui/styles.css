@@ -1026,3 +1026,24 @@ body.density-compact.layout-safari .tabstrip { padding-bottom: 6px; }
 .lp-dim { fill: var(--surface-3); opacity: .7; }
 .lp-acc { fill: var(--accent); }
 .lp-page { fill: var(--surface-2); }
+
+/* ---- Adressleiste: Website-Infos, Pop-up-Blocker, Übersetzen ---- */
+.omni-site.clickable { cursor: pointer; border-radius: 8px; padding: 3px 4px; margin: -3px -4px; }
+.omni-site.clickable:hover { background: var(--surface-2); }
+.omni-site .host-pill.danger { color: #f87171; font-weight: 600; }
+#btn-popup { color: #f59e0b; }
+#btn-translate.on { color: var(--accent); }
+.site-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; margin-top: 12px; font-size: 13px; }
+.input.sm, select.input.sm { padding: 5px 8px; font-size: 12.5px; min-width: 150px; }
+.popup-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow: auto; margin-top: 8px; }
+.popup-list a { color: var(--accent); font-size: 12.5px; word-break: break-all; text-decoration: none; }
+.popup-list a:hover { text-decoration: underline; }
+
+/* ---- Privater Space ---- */
+.space-btn.private { color: #a78bfa; }
+.space-btn.private .i { width: 17px; height: 17px; }
+body.private-space #omnibox { box-shadow: inset 0 0 0 1px color-mix(in srgb, #8b5cf6 55%, transparent); }
+
+/* ---- Passwörter ---- */
+.pw-row .r-sub { font-family: inherit; }
+.pw-val { letter-spacing: 1px; }

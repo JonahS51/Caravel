@@ -4,6 +4,8 @@
 //   declarativeNetRequest (Header-Regeln), runtime.getContexts, downloads.download
 //
 // Die Renderer-Seite liegt in src/preload/crx-early.js und crx-late.js.
+const fs = require('node:fs')
+const path = require('node:path')
 const { BrowserWindow, webContents, ipcMain } = require('electron')
 
 const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange']
@@ -11,6 +13,31 @@ const RESOURCE_TYPES = {
   mainFrame: 'main_frame', subFrame: 'sub_frame', stylesheet: 'stylesheet', script: 'script', image: 'image',
   font: 'font', object: 'object', xhr: 'xmlhttprequest', ping: 'ping', cspReport: 'csp_report', media: 'media',
   webSocket: 'websocket', other: 'other'
+}
+
+// Nötige Manifest-Berechtigung je Namensraum (dieselben, unter denen crx-early.js die APIs anbietet)
+const PERMISSION_FOR = {
+  tabGroups: 'tabGroups',
+  sidePanel: 'sidePanel',
+  debugger: 'debugger',
+  offscreen: 'offscreen',
+  identity: 'identity',
+  declarativeNetRequest: ['declarativeNetRequest', 'declarativeNetRequestWithHostAccess'],
+  downloads: 'downloads',
+  runtime: null
+}
+
+// DNR-Regel mit vorbereitetem Suchmuster (_regex) bzw. ohne für die Rückgabe an die Erweiterung
+function compileRule (rule) {
+  const c = rule.condition || {}
+  return { ...rule, _regex: c.regexFilter ? new RegExp(c.regexFilter, c.isUrlFilterCaseSensitive ? '' : 'i') : urlFilterToRegex(c.urlFilter) }
+}
+function publicRule ({ _regex, ...rule }) { return rule }
+
+// Erweiterungs-ID des tatsächlichen Absenders einer IPC-Nachricht
+function senderExtId (event) {
+  const url = event?.type === 'service-worker' ? event.serviceWorker?.scope : (event?.senderFrame?.url || '')
+  return /^chrome-extension:\/\/([a-p]{32})\//.exec(url || '')?.[1] || null
 }
 
 // DNR-urlFilter (||, |, *, ^) in einen regulären Ausdruck übersetzen
@@ -33,7 +60,8 @@ function urlFilterToRegex (filter) {
 }
 
 class CrxCompat {
-  constructor ({ session, getWindow, sendUi }) {
+  constructor ({ session, getWindow, sendUi, dataDir = null }) {
+    this.dataDir = dataDir
     this.session = session
     this.getWindow = getWindow
     this.sendUi = sendUi
@@ -47,6 +75,7 @@ class CrxCompat {
     this.debuggees = new Map() // `${extId}:${tabId}` -> { wc, onMessage, onDetach }
     this.offscreen = new Map() // extId -> BrowserWindow
     this.dnrRules = new Map() // extId -> { session: [], dynamic: [] }
+    this.loadDynamicRules()
     this.dnrInstalled = false
     this.nextDownloadId = 1
   }
@@ -111,8 +140,14 @@ class CrxCompat {
   async call (event, extId, fn, args) {
     const impl = this.api[fn]
     if (!impl) throw new Error(`${fn} wird von Caravel nicht unterstützt`)
+    // Die ID kommt vom Aufrufer – sie muss zum tatsächlichen Absender passen (Frame bzw. Service Worker),
+    // sonst könnte eine Erweiterung im Namen einer anderen handeln. event = null: Aufruf aus dem Hauptprozess.
+    if (event && senderExtId(event) !== extId) throw new Error('Zugriff verweigert')
     const ext = this.session.extensions.getExtension(extId)
     if (!ext) throw new Error('Unbekannte Erweiterung')
+    const need = PERMISSION_FOR[fn.split('.')[0]] ?? (fn.startsWith('tabs.') ? 'tabGroups' : null)
+    const perms = ext.manifest?.permissions || []
+    if (need && ![].concat(need).some(p => perms.includes(p))) throw new Error(`Berechtigung „${[].concat(need)[0]}“ fehlt im Manifest`)
     return impl.call(this, { event, extId, ext }, ...args)
   }
 
@@ -298,6 +333,8 @@ class CrxCompat {
       async 'debugger.sendCommand' ({ extId }, target = {}, method, params) {
         const d = this.debuggees.get(`${extId}:${target.tabId}`)
         if (!d) throw new Error(`Debugger is not attached to the tab with id: ${target.tabId}.`)
+        // Eingaben über CDP (z. B. Claude in Chrome klickt) zählen für den Popup-Blocker als Nutzereingabe
+        if (/^Input\./.test(method)) this.onAgentInput?.(target.tabId)
         if (!target.sessionId) {
           if (/\.enable$/.test(method)) d.enabled.set(method, params || {})
           if (/\.disable$/.test(method)) d.enabled.delete(method.replace(/disable$/, 'enable'))
@@ -360,9 +397,9 @@ class CrxCompat {
 
       // declarativeNetRequest: Header-Regeln für Anfragen
       'declarativeNetRequest.updateSessionRules' ({ extId }, opts = {}) { this.updateRules(extId, 'session', opts) },
-      'declarativeNetRequest.getSessionRules' ({ extId }) { return this.rules(extId).session },
+      'declarativeNetRequest.getSessionRules' ({ extId }) { return this.rules(extId).session.map(publicRule) },
       'declarativeNetRequest.updateDynamicRules' ({ extId }, opts = {}) { this.updateRules(extId, 'dynamic', opts) },
-      'declarativeNetRequest.getDynamicRules' ({ extId }) { return this.rules(extId).dynamic },
+      'declarativeNetRequest.getDynamicRules' ({ extId }) { return this.rules(extId).dynamic.map(publicRule) },
 
       // downloads.download → Caravel-Downloadverwaltung
       'downloads.download' (_c, options = {}) {
@@ -447,11 +484,31 @@ class CrxCompat {
 
   updateRules (extId, kind, { removeRuleIds = [], addRules = [] }) {
     const r = this.rules(extId)
-    r[kind] = r[kind].filter(rule => !removeRuleIds.includes(rule.id)).concat(addRules.map(rule => ({
-      ...rule,
-      _regex: rule.condition?.regexFilter ? new RegExp(rule.condition.regexFilter, rule.condition.isUrlFilterCaseSensitive ? '' : 'i') : urlFilterToRegex(rule.condition?.urlFilter)
-    })))
+    r[kind] = r[kind].filter(rule => !removeRuleIds.includes(rule.id)).concat(addRules.map(compileRule))
     this.installHeaderRules()
+    if (kind === 'dynamic') this.saveDynamicRules()
+  }
+
+  // Dynamische Regeln bleiben wie in Chrome über Neustarts erhalten (Sitzungsregeln nicht)
+  get rulesFile () { return this.dataDir ? path.join(this.dataDir, 'caravel-dnr.json') : null }
+
+  loadDynamicRules () {
+    if (!this.rulesFile) return
+    let saved = {}
+    try { saved = JSON.parse(fs.readFileSync(this.rulesFile, 'utf8')) } catch { return }
+    for (const [extId, list] of Object.entries(saved)) {
+      try { this.rules(extId).dynamic = (list || []).map(compileRule) } catch (err) { console.warn('[dnr]', extId, err.message) }
+    }
+  }
+
+  saveDynamicRules () {
+    if (!this.rulesFile) return
+    const out = {}
+    for (const [extId, r] of this.dnrRules) {
+      // Regeln entfernter Erweiterungen nicht weiter mitschleppen
+      if (r.dynamic.length && this.session.extensions.getExtension(extId)) out[extId] = r.dynamic.map(publicRule)
+    }
+    try { fs.writeFileSync(this.rulesFile, JSON.stringify(out)) } catch (err) { console.warn('[dnr] Speichern', err.message) }
   }
 
   // Nur onBeforeSendHeaders – onBeforeRequest/onHeadersReceived gehören dem Werbeblocker

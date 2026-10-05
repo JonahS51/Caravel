@@ -128,9 +128,12 @@ function startSocksAuthBridge (upstream) {
 }
 
 class VpnManager extends EventEmitter {
-  constructor ({ session, dataDir, vendorDir }) {
+  // extraSessions: weitere Sitzungen, die ebenfalls durch den Tunnel gehen (z. B. die der Oberfläche,
+  // die Favicons lädt – sonst verrieten diese Anfragen bei aktivem VPN die echte IP und die besuchten Seiten)
+  constructor ({ session, extraSessions = [], dataDir, vendorDir }) {
     super()
     this.session = session
+    this.sessions = [session, ...extraSessions]
     this.dataDir = dataDir
     this.vendorDir = vendorDir
     this.proc = null
@@ -162,34 +165,44 @@ class VpnManager extends EventEmitter {
 
   async connect (config) {
     await this.disconnect({ silent: true })
+    // Jeder Verbindungsversuch hat eine Nummer; „Trennen“ während des Aufbaus erhöht sie und bricht ihn so ab
+    const run = this.run
+    const cancelled = () => run !== this.run
     this.set({ status: 'connecting', mode: config.mode, label: config.label || '', progress: 0, ip: null, country: null, city: null, error: null })
     try {
       let proxyRules
       if (config.mode === 'tor') proxyRules = await this.startTor(config.country)
       else proxyRules = await this.startServer(config.server)
-      await this.session.setProxy({ proxyRules, proxyBypassRules: '<local>' })
-      await this.session.closeAllConnections()
+      if (cancelled()) return
+      await this.setProxyAll({ proxyRules, proxyBypassRules: '<local>' })
       this.applyWebRtc(true)
       // Erst melden, wenn tatsächlich Verkehr durch den Tunnel geht
       await this.checkIp()
+      if (cancelled()) return
       if (!this.state.ip) throw new Error(t('Über diesen Server kommt keine Verbindung zustande. Zugangsdaten bzw. Konfiguration prüfen.'))
       this.set({ status: 'on', progress: 100 })
     } catch (err) {
+      if (cancelled()) return // vom Nutzer abgebrochen – kein Fehler
       await this.disconnect({ silent: true })
       this.set({ status: 'error', error: err.message || String(err) })
     }
   }
 
   async disconnect ({ silent = false } = {}) {
+    this.run = (this.run || 0) + 1
     if (this.proc) { try { this.proc.kill() } catch {} this.proc = null }
     if (this.bridge) { try { this.bridge.close() } catch {} this.bridge = null }
     this.tor = null
-    try {
-      await this.session.setProxy({ mode: 'direct' })
-      await this.session.closeAllConnections()
-    } catch {}
+    try { await this.setProxyAll({ mode: 'direct' }) } catch {}
     this.applyWebRtc(false)
     if (!silent) this.set({ status: 'off', progress: 0, ip: null, country: null, city: null, error: null })
+  }
+
+  async setProxyAll (config) {
+    for (const ses of this.sessions) {
+      await ses.setProxy(config)
+      await ses.closeAllConnections()
+    }
   }
 
   // --- Tor ------------------------------------------------------------------
@@ -209,6 +222,8 @@ class VpnManager extends EventEmitter {
       '--GeoIPFile', path.join(this.vendorDir, 'tor', 'data', 'geoip'),
       '--GeoIPv6File', path.join(this.vendorDir, 'tor', 'data', 'geoip6'),
       '--ClientOnly', '1',
+      // Tor beendet sich selbst, wenn Caravel abstürzt – sonst blockiert ein verwaistes tor.exe das Datenverzeichnis
+      '--__OwningControllerProcess', String(process.pid),
       '--Log', 'notice stdout'
     ]
     if (country && country !== 'auto') args.push('--ExitNodes', `{${country}}`, '--StrictNodes', '1')

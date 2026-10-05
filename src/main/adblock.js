@@ -11,6 +11,9 @@ const path = require('node:path')
 const { net } = require('electron')
 const { ElectronBlocker } = require('@ghostery/adblocker-electron')
 const { parse } = require('tldts-experimental')
+// Die Bibliothek verwaltet nur eine Sitzung selbst (globale IPC-Handler); weitere Sitzungen
+// (privater Space) bekommen ihre Netzwerkfilter und das CSS-Preload direkt
+const COSMETIC_PRELOAD = require.resolve('@ghostery/adblocker-electron-preload')
 
 const UBO = 'https://ublockorigin.github.io/uAssets'
 const LISTS = {
@@ -60,9 +63,10 @@ async function fetchList (url, depth = 0) {
 }
 
 class AdBlock {
-  constructor (dir, session) {
+  constructor (dir, sessions) {
     this.dir = dir
-    this.session = session
+    this.sessions = [].concat(sessions)
+    this.extraPreloads = new Map() // Sitzung → Preload-ID
     this.blocker = null
     this.enabled = false
     this.cookies = false
@@ -94,7 +98,16 @@ class AdBlock {
     return blocker
   }
 
-  async load ({ forceUpdate = false } = {}) {
+  // Läuft schon ein Ladevorgang (z. B. beim ersten Start), darauf warten statt einen zweiten zu starten
+  load (opts = {}) {
+    if (this.loading) return this.loading
+    this.loading = this.doLoad(opts)
+      .catch(err => { this.status = 'error'; throw err })
+      .finally(() => { this.loading = null })
+    return this.loading
+  }
+
+  async doLoad ({ forceUpdate = false } = {}) {
     this.status = 'loading'
     let blocker = null
     const file = this.cacheFile()
@@ -166,7 +179,7 @@ class AdBlock {
 
   swap (blocker) {
     const wasActive = this.enabled && this.blocker
-    if (wasActive) this.blocker.disableBlockingInSession(this.session)
+    if (wasActive) this.deactivate()
     this.blocker = blocker
     // Die Engine würde Skriptfilter nur verzögert (asynchron) einfügen. Hier liefert sie
     // deshalb nur noch CSS; die Skriptfilter kommen über scriptletsFor() ins Preload.
@@ -201,7 +214,28 @@ class AdBlock {
       this.perTab.set(id, n)
       this.onBlocked(id, n, this.blockedTotal)
     })
-    if (this.enabled) blocker.enableBlockingInSession(this.session)
+    if (this.enabled) this.activate()
+  }
+
+  activate () {
+    const [main, ...extra] = this.sessions
+    this.blocker.enableBlockingInSession(main)
+    for (const ses of extra) {
+      ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, (d, cb) => this.blocker.onHeadersReceived(d, cb))
+      ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (d, cb) => this.blocker.onBeforeRequest(d, cb))
+      this.extraPreloads.set(ses, ses.registerPreloadScript({ type: 'frame', filePath: COSMETIC_PRELOAD }))
+    }
+  }
+
+  deactivate () {
+    const [main, ...extra] = this.sessions
+    if (this.blocker.isBlockingEnabled(main)) this.blocker.disableBlockingInSession(main)
+    for (const ses of extra) {
+      ses.webRequest.onHeadersReceived(null)
+      ses.webRequest.onBeforeRequest(null)
+      const id = this.extraPreloads.get(ses)
+      if (id !== undefined) { ses.unregisterPreloadScript(id); this.extraPreloads.delete(ses) }
+    }
   }
 
   async setEnabled (enabled, cookies) {
@@ -215,8 +249,8 @@ class AdBlock {
     if (enabled === this.enabled) return
     this.enabled = enabled
     if (!this.blocker) return
-    if (enabled) this.blocker.enableBlockingInSession(this.session)
-    else this.blocker.disableBlockingInSession(this.session)
+    if (enabled) this.activate()
+    else this.deactivate()
   }
 
   resetTab (tabId) { this.perTab.set(tabId, 0) }

@@ -70,7 +70,14 @@ window.ICONS = {
   send: '<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5 20 4"/>',
   markdown: '<rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M6 15V9l2.5 3L11 9v6M15.5 9v6M13.5 13l2 2 2-2"/>',
   agent: '<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9.5 13h.01M14.5 13h.01M9 16.5h6"/><circle cx="12" cy="4" r="1" class="f"/>',
-  refresh: '<path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/>'
+  refresh: '<path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/>',
+  translate: '<path d="M4 5h9M8.5 3v2M6 5c.6 3 2.6 5.6 5 7M11 5c-.7 3.4-3.3 6.4-7 8"/><path d="M12.5 21l4-10 4 10M14 17.5h5"/>',
+  popup: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M3 8h14"/><circle cx="17.5" cy="17.5" r="4"/><path d="M14.7 20.3l5.6-5.6"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+  incognito: '<path d="M3 11h18M5.5 11l1.8-5.2a1 1 0 0 1 1.2-.6L12 6l3.5-.8a1 1 0 0 1 1.2.6L18.5 11"/><circle cx="7.5" cy="16" r="2.8"/><circle cx="16.5" cy="16" r="2.8"/><path d="M10.3 16c1.1-.8 2.3-.8 3.4 0"/>',
+  importIcon: '<path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
+  usb: '<path d="M12 3v14M9 6l3-3 3 3M7 10v2l5 3M17 9v2l-5 3"/><circle cx="12" cy="19" r="2"/>'
 }
 
 window.icon = (name, cls = '') =>

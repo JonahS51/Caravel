@@ -42,6 +42,15 @@ if ($('badge')) {
   document.title = title
   $('retry').addEventListener('click', e => { e.preventDefault(); if (target) location.href = target })
   if (params.get('code') === '-106') window.addEventListener('online', () => { if (target) location.href = target })
+  // Zertifikatsfehler: wie in Chrome unter „Erweitert“ trotzdem fortfahren können
+  const code = parseInt(params.get('code'), 10)
+  if (code <= -200 && code > -300 && target && window.caravelNTP?.proceedUnsafe) {
+    $('unsafe').hidden = false
+    $('proceed').addEventListener('click', async e => {
+      e.preventDefault()
+      await window.caravelNTP.proceedUnsafe(target) // lädt die Seite danach selbst
+    })
+  }
 }
 
 if ($('host')) {

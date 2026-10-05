@@ -67,7 +67,7 @@ function tile (url, title, favicon) {
     ico.textContent = host.charAt(0).toUpperCase()
   }
   const img = document.createElement('img')
-  const sources = [favicon, new URL(url).origin + '/favicon.ico'].filter(Boolean)
+  const sources = [/^(https?:|data:image\/)/i.test(favicon || '') ? favicon : null, new URL(url).origin + '/favicon.ico'].filter(Boolean)
   img.onerror = () => { sources.shift(); if (sources.length) img.src = sources[0]; else letter() }
   img.src = sources[0]
   ico.append(img)
@@ -196,11 +196,18 @@ async function init () {
   const theme = d.theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : d.theme
   document.documentElement.classList.toggle('light', theme === 'light')
   document.documentElement.style.setProperty('--accent', d.accent)
-  $('#greeting').textContent = greeting(d.userName)
+  $('#greeting').textContent = d.private ? T('Privater Space') : greeting(d.userName)
+  if (d.private) {
+    // Wie Chromes Inkognito-Seite: erklären, was privat bleibt und was nicht
+    document.documentElement.classList.add('private')
+    $('#top-shelf').remove()
+    $('#stats').innerHTML = `<span class="chip">${esc(T('Verlauf, Cookies und Formulardaten dieses Spaces werden beim Schließen des letzten privaten Tabs gelöscht. Downloads und Favoriten bleiben erhalten. Websites, dein Arbeitgeber oder Internetanbieter können deine Aktivität weiterhin sehen.'))}</span>`
+  }
   $('#engine').textContent = ENGINES[d.searchEngine] || 'Google'
   template = d.searchTemplate
 
   renderFavs(d.bookmarks)
+  if (d.private) return
   renderTop(d.topSites, d.bookmarks)
 
   const icons = {
@@ -230,5 +237,5 @@ api?.onChanged(async () => {
   const d = await api.getData()
   if (!d) return
   renderFavs(d.bookmarks)
-  renderTop(d.topSites, d.bookmarks)
+  if (!d.private) renderTop(d.topSites, d.bookmarks)
 })

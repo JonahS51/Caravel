@@ -18,6 +18,8 @@ const NS = {
 }
 const DEFAULT_RECEIVER = 'CC1AD845'
 const SENDER = 'sender-caravel'
+// Geräte antworten nur etwa alle 60–100 s auf wiederholte Anfragen – erst nach 4 Minuten Funkstille gilt eins als weg
+const STALE_AFTER = 240000
 const CAPS = [[1, 'video_out'], [2, 'video_in'], [4, 'audio_out'], [8, 'audio_in'], [32, 'multizone_group']]
 
 const MIME = {
@@ -51,6 +53,8 @@ class Discovery extends EventEmitter {
     this.txt = new Map() // Instanzname → TXT-Werte
     this.ips = new Map() // Hostname → IPv4
     this.devices = new Map()
+    this.seen = new Map() // Instanzname → letzte Antwort (Geräte ohne Abmeldung veralten so)
+    this.keep = () => new Set() // IDs, die trotz Funkstille bleiben (laufende Sitzungen)
     this.timers = []
   }
 
@@ -59,11 +63,19 @@ class Discovery extends EventEmitter {
     this.mdns = require('multicast-dns')()
     this.mdns.on('response', res => this.onResponse(res))
     this.mdns.on('error', () => {})
-    // Die ersten Anfragen gehen oft verloren, solange der Multicast-Beitritt läuft
-    for (const ms of [0, 1500, 4000, 8000]) this.timers.push(setTimeout(() => this.query(), ms))
-    const iv = setInterval(() => this.query(), 30000)
-    iv.unref?.()
-    this.timers.push(iv)
+    // Die ersten Anfragen gehen oft verloren, solange der Multicast-Beitritt läuft. Solange noch kein
+    // Gerät bekannt ist, alle 5 s fragen, danach alle 30 s (und veraltete Geräte aussortieren).
+    for (const ms of [0, 1500, 4000]) this.timers.push(setTimeout(() => this.query(), ms))
+    const tick = () => {
+      if (!this.mdns) return
+      this.query()
+      this.timers.push(setTimeout(() => this.rebuild(), 3000))
+      const next = setTimeout(tick, this.devices.size ? 30000 : 5000)
+      next.unref?.()
+      this.timers.push(next)
+      if (this.timers.length > 50) this.timers = this.timers.slice(-10) // erledigte Zeitgeber nicht sammeln
+    }
+    this.timers.push(setTimeout(tick, 8000))
   }
 
   query () {
@@ -75,8 +87,11 @@ class Discovery extends EventEmitter {
       if (a.type === 'PTR' && a.name === '_googlecast._tcp.local' && a.ttl === 0) {
         this.srv.delete(a.data)
         this.txt.delete(a.data)
+      } else if (a.type === 'PTR' && a.name === '_googlecast._tcp.local') {
+        this.seen.set(a.data, Date.now())
       } else if (a.type === 'SRV' && /_googlecast\._tcp\.local$/.test(a.name)) {
         this.srv.set(a.name, { target: a.data.target.toLowerCase(), port: a.data.port })
+        this.seen.set(a.name, Date.now())
       } else if (a.type === 'TXT' && /_googlecast\._tcp\.local$/.test(a.name)) {
         const txt = {}
         for (const b of [].concat(a.data)) {
@@ -94,9 +109,12 @@ class Discovery extends EventEmitter {
   rebuild () {
     let changed = false
     const seen = new Set()
+    const keep = this.keep()
     for (const [name, srv] of this.srv) {
       const txt = this.txt.get(name)
       if (!txt) continue
+      // seit 4 Minuten keine Antwort mehr → Gerät ist weg (ausgeschaltet, anderes WLAN)
+      if (Date.now() - (this.seen.get(name) || 0) > STALE_AFTER && !keep.has(txt.id || name)) continue
       const host = this.ips.get(srv.target)
       if (!host) { try { this.mdns.query(srv.target, 'A') } catch {} continue }
       const id = txt.id || name
@@ -411,6 +429,7 @@ class CastManager {
   constructor (send) {
     this.send = send
     this.discovery = new Discovery()
+    this.discovery.keep = () => new Set(this.activities.keys())
     this.discovery.on('change', () => { this.emitDevices(); this.emitAvailability() })
     this.receivers = new Map()
     this.activities = new Map() // Geräte-ID → laufende Sitzung dieses Browsers
@@ -911,8 +930,10 @@ class CastManager {
     const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*' }
     const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '')
     if (range) {
-      const start = range[1] ? parseInt(range[1], 10) : 0
-      const end = range[2] ? Math.min(parseInt(range[2], 10), size - 1) : size - 1
+      // „bytes=-500“ meint die letzten 500 Bytes (Suffix-Bereich), nicht 0–500
+      const suffix = !range[1] && range[2]
+      const start = suffix ? Math.max(0, size - parseInt(range[2], 10)) : range[1] ? parseInt(range[1], 10) : 0
+      const end = suffix || !range[2] ? size - 1 : Math.min(parseInt(range[2], 10), size - 1)
       res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 })
       if (req.method === 'HEAD') return res.end()
       fs.createReadStream(file, { start, end }).pipe(res)
