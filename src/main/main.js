@@ -444,7 +444,8 @@ function showContextMenu (wc, params) {
 // Hauptfenster
 
 function createWindow () {
-  const dark = store.get('settings').theme !== 'light'
+  // nativeTheme.themeSource ist hier schon gesetzt (applySettings) – gilt also auch für „System“
+  const dark = nativeTheme.shouldUseDarkColors
   win = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -453,9 +454,9 @@ function createWindow () {
     show: false,
     title: 'Caravel',
     icon: ICON,
-    backgroundColor: dark ? '#0a1022' : '#eef1f8',
+    backgroundColor: dark ? '#161618' : '#f2f2f1',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: dark ? '#0a1022' : '#eef1f8', symbolColor: dark ? '#e8ecf8' : '#101a33', height: 44 },
+    titleBarOverlay: { color: dark ? '#161618' : '#f2f2f1', symbolColor: dark ? '#e6e6e8' : '#1d1d1f', height: 44 },
     webPreferences: {
       preload: UI_PRELOAD,
       contextIsolation: true,
@@ -852,7 +853,8 @@ function registerIpc () {
     }
     store.set(key, value)
     if (key === 'settings') applySettings()
-    if (key === 'bookmarks') notifyNewtabPages()
+    // Neuer-Tab-Seiten übernehmen Favoriten sowie Design, Name und Suchmaschine sofort
+    if (key === 'bookmarks' || key === 'settings') notifyNewtabPages()
   })
 
   ipcMain.on('ui:ready', () => {

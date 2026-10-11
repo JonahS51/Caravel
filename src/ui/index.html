@@ -58,7 +58,11 @@
         <div class="omni-wrap no-drag">
           <div id="omnibox" class="omnibox">
             <span class="omni-site" id="omni-site"></span>
-            <input id="omni-input" spellcheck="false" autocomplete="off" placeholder="Suchen oder Adresse eingeben">
+            <!-- Ohne Fokus zeigt #omni-display die Adresse mit hervorgehobener Domain über dem Eingabefeld -->
+            <span class="omni-field">
+              <input id="omni-input" spellcheck="false" autocomplete="off" placeholder="Suchen oder Adresse eingeben">
+              <span class="omni-display" id="omni-display" aria-hidden="true"></span>
+            </span>
             <div class="omni-actions">
               <button class="icon-btn sm" id="btn-popup" title="Pop-up blockiert" hidden></button>
               <button class="icon-btn sm" id="btn-translate" title="Seite übersetzen" hidden></button>

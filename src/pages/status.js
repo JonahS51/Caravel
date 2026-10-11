@@ -35,6 +35,7 @@ function describeDe (code) {
 if ($('badge')) {
   const [ic, title, text] = describe(params.get('code'))
   $('badge').innerHTML = ICONS[ic]
+  $('badge').classList.toggle('danger', ic === 'lock') // Zertifikatsfehler
   $('title').textContent = title
   $('text').textContent = text
   $('url').textContent = target
@@ -60,7 +61,13 @@ if ($('host')) {
 
 window.caravelNTP?.getData().then(d => {
   if (!d) return
-  const theme = d.theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : d.theme
-  document.documentElement.classList.toggle('light', theme === 'light')
+  const darkQuery = matchMedia('(prefers-color-scheme: dark)')
+  const apply = () => {
+    const theme = d.theme === 'system' ? (darkQuery.matches ? 'dark' : 'light') : d.theme
+    document.documentElement.classList.toggle('light', theme === 'light')
+  }
+  apply()
+  darkQuery.addEventListener('change', apply) // Design „System“: Windows wechselt Hell/Dunkel
+  document.documentElement.classList.toggle('private', !!d.private)
   document.documentElement.style.setProperty('--accent', d.accent)
 })

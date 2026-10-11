@@ -13,13 +13,14 @@ eingebautem VPN, Chrome-Erweiterungen und Chromecast.
 
 ## Installation
 
-`dist/Caravel-Setup-3.2.0.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
+`dist/Caravel-Setup-4.0.0.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
 registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installierte Programm braucht kein Node.js.
 
 ## Funktionen
 
 | Funktion | Bedienung |
 |---|---|
+| **Design „Stille“** – ruhiger Rahmen in Graphit oder Papier, Haarlinien statt Flächen, die Space-Farbe nur dort, wo gerade Aufmerksamkeit ist; Adresszeile mit hervorgehobener Domain, editoriale Startseite | Einstellungen › Darstellung |
 | **Deutsch und Englisch** – automatisch nach Windows-Sprache oder fest gewählt | Einstellungen › Allgemein › Sprache |
 | **KI-Assistent wählbar** – Claude, ChatGPT oder keiner | Einstellungen › KI-Assistent |
 | **KI-Seitenleiste** – claude.ai bzw. chatgpt.com neben jeder Seite (abschaltbar) | `Strg+E`, Knopf „Claude“/„ChatGPT“ |
@@ -83,7 +84,7 @@ npm run release    # wie dist, lädt Installer + latest.yml als Release nach Git
 Die Installer werden als Releases dieses öffentlichen Repos `JonahS51/Caravel` veröffentlicht
 (siehe `build.publish` in `package.json`). Ablauf für eine neue Version:
 
-1. Version in `package.json` erhöhen (z. B. 3.2.0).
+1. Version in `package.json` erhöhen (z. B. 4.0.0).
 2. `$env:GH_TOKEN = '<Token mit Schreibrecht auf Caravel>'; npm run release`
    – electron-builder lädt `Caravel-Setup-<version>.exe`, die `.blockmap` und `latest.yml` als Release-Entwurf hoch.
 3. Den Entwurf auf GitHub veröffentlichen. Installierte Versionen finden das Update beim nächsten Start
@@ -139,13 +140,14 @@ a built-in VPN, Chrome extensions and Chromecast.
 
 ## Installation
 
-Run `dist/Caravel-Setup-3.2.0.exe`. The installer asks for the target folder, creates shortcuts and registers
+Run `dist/Caravel-Setup-4.0.0.exe`. The installer asks for the target folder, creates shortcuts and registers
 Caravel as a browser in Windows “Default apps”. The installed program does not need Node.js.
 
 ## Features
 
 | Feature | How to use |
 |---|---|
+| **“Stille” design** – a calm frame in graphite or paper, hairlines instead of panels, each space’s color only where your attention is; address bar with the domain highlighted, editorial start page | Settings › Appearance |
 | **German and English** – automatically based on the Windows language, or set manually | Settings › General › Language |
 | **Choice of AI assistant** – Claude, ChatGPT or none | Settings › AI assistant |
 | **AI sidebar** – claude.ai or chatgpt.com next to every page (can be turned off) | `Ctrl+E`, “Claude”/“ChatGPT” button |
@@ -209,7 +211,7 @@ npm run release    # like dist, uploads the installer + latest.yml as a GitHub r
 The installers are published as releases of this public repository `JonahS51/Caravel`
 (see `build.publish` in `package.json`). Steps for a new version:
 
-1. Increase the version in `package.json` (e.g. 3.2.0).
+1. Increase the version in `package.json` (e.g. 4.0.0).
 2. `$env:GH_TOKEN = '<token with write access to Caravel>'; npm run release`
    – electron-builder uploads `Caravel-Setup-<version>.exe`, the `.blockmap` and `latest.yml` as a draft release.
 3. Publish the draft on GitHub. Installed versions find the update on their next start

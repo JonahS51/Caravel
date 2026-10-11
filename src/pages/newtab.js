@@ -188,24 +188,33 @@ function toUrl (t) {
   return template.replace(/%25QUERY%25|%QUERY%/, encodeURIComponent(t))
 }
 
+// Design, Begrüßung und Suchmaschine – auch später, wenn sich die Einstellungen ändern.
+// Die Akzentfarbe nur beim Laden: sie gehört zum Space dieses Tabs, nicht zum gerade aktiven.
+let look = null
+const darkQuery = matchMedia('(prefers-color-scheme: dark)')
+function applyLook (d, { accent = false } = {}) {
+  look = d
+  const theme = d.theme === 'system' ? (darkQuery.matches ? 'dark' : 'light') : d.theme
+  document.documentElement.classList.toggle('light', theme === 'light')
+  if (accent) document.documentElement.style.setProperty('--accent', d.accent)
+  $('#greeting').textContent = d.private ? T('Privater Space') : greeting(d.userName)
+  $('#engine').textContent = ENGINES[d.searchEngine] || 'Google'
+  template = d.searchTemplate
+}
+darkQuery.addEventListener('change', () => { if (look) applyLook(look) })
+
 async function init () {
   tick()
   setInterval(tick, 1000)
   const d = await window.caravelNTP?.getData()
   if (!d) return
-  const theme = d.theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : d.theme
-  document.documentElement.classList.toggle('light', theme === 'light')
-  document.documentElement.style.setProperty('--accent', d.accent)
-  $('#greeting').textContent = d.private ? T('Privater Space') : greeting(d.userName)
+  applyLook(d, { accent: true })
   if (d.private) {
     // Wie Chromes Inkognito-Seite: erklären, was privat bleibt und was nicht
     document.documentElement.classList.add('private')
     $('#top-shelf').remove()
     $('#stats').innerHTML = `<span class="chip">${esc(T('Verlauf, Cookies und Formulardaten dieses Spaces werden beim Schließen des letzten privaten Tabs gelöscht. Downloads und Favoriten bleiben erhalten. Websites, dein Arbeitgeber oder Internetanbieter können deine Aktivität weiterhin sehen.'))}</span>`
   }
-  $('#engine').textContent = ENGINES[d.searchEngine] || 'Google'
-  template = d.searchTemplate
-
   renderFavs(d.bookmarks)
   if (d.private) return
   renderTop(d.topSites, d.bookmarks)
@@ -232,10 +241,11 @@ $('#search').addEventListener('submit', e => {
 
 init()
 
-// Favoriten wurden geändert (hier, in der Favoritenleiste oder einem anderen Tab)
+// Favoriten oder Einstellungen wurden geändert (hier, in der Favoritenleiste, einem anderen Tab oder den Einstellungen)
 api?.onChanged(async () => {
   const d = await api.getData()
   if (!d) return
+  applyLook(d)
   renderFavs(d.bookmarks)
   if (!d.private) renderTop(d.topSites, d.bookmarks)
 })

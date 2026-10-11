@@ -90,9 +90,9 @@ if (/^https:|^http:\/\/(localhost|127\.0\.0\.1)/.test(location.href) && window.t
     const root = host.attachShadow({ mode: 'closed' })
     const dark = matchMedia('(prefers-color-scheme: dark)').matches
     root.innerHTML = `<style>
-      .box{font:13px/1.3 'Segoe UI',system-ui,sans-serif;min-width:${Math.max(220, Math.round(r.width))}px;max-width:360px;background:${dark ? '#1b2236' : '#fff'};color:${dark ? '#e8ecf8' : '#101a33'};border:1px solid ${dark ? '#2c3550' : '#d5dae6'};border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:4px;overflow:hidden}
-      .item{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:7px;cursor:default}
-      .item:hover{background:${dark ? '#2a3350' : '#eef1f8'}}
+      .box{font:13px/1.3 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;min-width:${Math.max(220, Math.round(r.width))}px;max-width:360px;background:${dark ? '#232326' : '#fff'};color:${dark ? '#ececee' : '#1d1d1f'};border:1px solid ${dark ? '#38383e' : '#dcdcde'};border-radius:10px;box-shadow:0 12px 32px -8px rgba(0,0,0,${dark ? '.6' : '.18'});padding:4px;overflow:hidden}
+      .item{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:6px;cursor:default}
+      .item:hover{background:${dark ? '#2e2e33' : '#f0f0ef'}}
       .key{width:16px;height:16px;flex:none;opacity:.7}
       .u{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .p{opacity:.6;letter-spacing:2px}

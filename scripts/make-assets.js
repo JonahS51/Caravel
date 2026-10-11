@@ -57,16 +57,15 @@ const LOGO = MARK_COLOR
 const page = svg => `<html><body style="margin:0;background:transparent;overflow:hidden">${svg}</body></html>`
 const ICON_HTML = page(ICON(512))
 
+// Installer-Seitenbild im Design „Stille“: Graphit, das Logo auf einem ruhigen Horizont, Haarlinien statt Glanz
 const SIDEBAR_HTML = `<html><body style="margin:0;width:164px;height:314px;overflow:hidden;font-family:'Segoe UI Variable Display','Segoe UI',sans-serif;
-  background:linear-gradient(180deg,#16295a 0%,#0a1330 70%,#0a1330 100%);position:relative;color:#fff">
-  <div style="position:absolute;width:240px;height:240px;left:-40px;top:150px;border-radius:50%;background:#f2545b;filter:blur(70px);opacity:.35"></div>
-  <div style="position:absolute;width:180px;height:180px;right:-70px;top:-50px;border-radius:50%;background:#ffb35c;filter:blur(60px);opacity:.22"></div>
-  <div style="position:relative;padding:54px 0 0;text-align:center">
-    <div style="filter:drop-shadow(0 10px 24px rgba(242,84,91,.4))">${LOGO(76)}</div>
-    <div style="font-size:28px;font-weight:650;letter-spacing:.5px;margin-top:16px">Caravel</div>
-    <div style="font-size:11.5px;opacity:.72;margin-top:4px;letter-spacing:.2px">Entdecke das Web</div>
-  </div>
-  <div style="position:absolute;left:0;right:0;bottom:22px;text-align:center;font-size:9px;opacity:.5;letter-spacing:1px;text-transform:uppercase">Claude · VPN · Adblock</div>
+  background:#161618;position:relative;color:#ececee">
+  <div style="position:absolute;left:0;right:0;top:0;height:136px;background:radial-gradient(96px 64px at 50% 100%,rgba(255,179,92,.17),transparent 74%)"></div>
+  <div style="position:absolute;left:14px;right:14px;top:135px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,179,92,.6) 30%,rgba(242,84,91,.6) 70%,transparent)"></div>
+  <div style="position:absolute;left:0;right:0;top:66px;height:68px;text-align:center;line-height:0">${MARK_LIGHT(68)}</div>
+  <div style="position:absolute;left:0;right:0;top:156px;text-align:center;font-size:25px;line-height:30px;font-weight:600;letter-spacing:-.2px">Caravel</div>
+  <div style="position:absolute;left:0;right:0;top:190px;text-align:center;font-size:11.5px;color:#a3a3aa">Entdecke das Web</div>
+  <div style="position:absolute;left:0;right:0;bottom:20px;text-align:center;font-size:8.5px;color:#78787f;letter-spacing:1.6px;text-transform:uppercase">Claude · VPN · Adblock</div>
 </body></html>`
 
 async function render (html, width, height) {

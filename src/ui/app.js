@@ -87,9 +87,9 @@ function faviconEl (favicon, url, size = 16) {
   const host = hostOf(url)
   const internal = /^caravel:/.test(url || '')
   if (internal) {
+    // Interne Seiten: neutrales Symbol (die Farbe kommt aus dem CSS des jeweiligen Kontexts)
     const s = document.createElement('span')
     s.innerHTML = icon('sparkles')
-    s.style.color = 'var(--accent)'
     s.style.display = 'grid'
     s.firstChild.style.width = s.firstChild.style.height = size + 'px'
     return s
@@ -524,7 +524,7 @@ const normalSpaceId = () => {
 function openPrivate (url = null) {
   let sp = privateSpace()
   if (!sp) {
-    sp = { id: 'space-private', name: T('Privat'), color: '#8b5cf6', icon: '◐', private: true, tabIds: [], activeId: null, split: null, returnTo: S.activeSpace }
+    sp = { id: 'space-private', name: T('Privat'), color: '#a78bfa', icon: '◐', private: true, tabIds: [], activeId: null, split: null, returnTo: S.activeSpace }
     S.spaces.push(sp)
     toast('Privater Space', 'Verlauf, Cookies und Website-Daten werden gelöscht, sobald du den letzten privaten Tab schließt.', 'incognito', { duration: 5000 })
   }
@@ -661,7 +661,7 @@ function switchSpace (id, { tabId, initial } = {}) {
   renderSpaces()
   if (changed && !initial) {
     const list = $('#tab-list')
-    list.animate([{ opacity: 0, transform: 'translateX(-10px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' })
+    list.animate([{ opacity: 0, transform: 'translateX(-6px)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.2,0,0,1)' })
   }
   saveSession()
 }
@@ -919,18 +919,20 @@ function favDrop (e, targetId, where) {
 function initFavorites () {
   // Freie Fläche: ans Ende verschieben bzw. Tab ans Ende anheften; Rechtsklick: Hinzufügen-Menü
   for (const zone of [$('#favorites'), $('#favbar')]) {
+    // Die Werkzeuge rechts in der Favoritenleiste (#sb-tools) sind weder Ablageziel noch Favoriten-Fläche
     zone.addEventListener('dragover', e => {
+      if (e.target.closest('#sb-tools')) return
       const types = e.dataTransfer.types
       if (types.includes('text/caravel-bm') || types.includes('text/caravel-tab')) e.preventDefault()
     })
     zone.addEventListener('drop', e => {
-      if (e.target.closest('.fav')) return
+      if (e.target.closest('.fav, #sb-tools')) return
       e.preventDefault()
       e.stopPropagation()
       favDrop(e, null, 'after')
     })
     zone.addEventListener('contextmenu', e => {
-      if (e.target.closest('.fav')) return
+      if (e.target.closest('.fav, #sb-tools')) return
       e.preventDefault()
       showMenu(e.clientX, e.clientY, favBarMenuItems())
     })
@@ -990,7 +992,9 @@ function layoutFavbar () {
   const items = [...$('#favorites').children]
   for (const el of items) el.classList.remove('overflow')
   if (!isHorizontalTabs() || bar.hidden) { more.hidden = true; return }
-  const limit = bar.getBoundingClientRect().right - 44
+  // rechts stehen die Werkzeuge (Verlauf, Downloads …) – Favoriten enden 44 px davor (Platz für »)
+  const tools = $('#sb-tools')
+  const limit = (bar.contains(tools) ? tools.getBoundingClientRect().left : bar.getBoundingClientRect().right) - 44
   const hidden = items.filter(el => el.getBoundingClientRect().right > limit)
   for (const el of hidden) el.classList.add('overflow')
   more.hidden = !hidden.length
@@ -1240,6 +1244,7 @@ function applyTabLayout () {
     $('#ts-tabs').append(list, newtab)
     $('#ts-spaces').append(spaces)
     favbar.prepend(favs)
+    favbar.append($('#sb-tools')) // Verlauf, Downloads, Notizen … rechts in der Favoritenleiste
     // Chrome: Tabs ganz oben, Safari: Tabs unter Adress- und Favoritenleiste
     if (mode === 'chrome') main.prepend(strip)
     else main.insertBefore(strip, $('.content-row'))
@@ -1251,6 +1256,7 @@ function applyTabLayout () {
     sidebar.insertBefore(newtab, foot)
     sidebar.insertBefore(list, foot)
     foot.prepend(spaces)
+    foot.append($('#sb-tools'))
   }
   strip.hidden = !horiz
   favbar.hidden = !horiz || settings().showFavbar === false
@@ -1303,10 +1309,23 @@ function updateNav () {
   updateTranslateButton()
 }
 
+// Adresse ohne Fokus: Domain in voller Textfarbe, Schema und Pfad leiser (nur bei Web-Adressen)
+function renderOmniDisplay (text) {
+  const display = $('#omni-display')
+  const web = !/^[a-z][\w+.-]*:(\/\/|[^\d])/i.test(text) || /^https?:\/\//i.test(text)
+  const m = web && /^(https?:\/\/)?([^/?#]+)(.*)$/i.exec(text)
+  if (!text) display.textContent = ''
+  else if (!m) display.innerHTML = `<span class="host">${esc(text)}</span>`
+  else display.innerHTML = `${m[1] ? `<span class="scheme">${esc(m[1])}</span>` : ''}<span class="host">${esc(m[2])}</span>${m[3] ? `<span class="path">${esc(m[3])}</span>` : ''}`
+}
+
 function updateOmnibox () {
   const t = activeTab()
   const input = $('#omni-input')
-  if (document.activeElement !== input) input.value = t ? prettyUrl(t.url) : ''
+  if (document.activeElement !== input) {
+    input.value = t ? prettyUrl(t.url) : ''
+    renderOmniDisplay(input.value)
+  }
   const site = $('#omni-site')
   const url = t?.url || ''
   site.className = 'omni-site'
@@ -1321,6 +1340,7 @@ function updateOmnibox () {
   else if (url.startsWith('file:')) site.innerHTML = icon('file')
   else if (url.startsWith('chrome-extension:')) site.innerHTML = icon('puzzle')
   else site.innerHTML = icon('globe')
+  if (curSpace()?.private) site.insertAdjacentHTML('beforeend', `<span class="omni-tag">${T('Privat')}</span>`)
 }
 
 function adblockPaused (url) {
@@ -1340,20 +1360,21 @@ function updateAdblockChip () {
 
 function updateAmbient () {
   const t = activeTab()
-  const accent = curSpace()?.color || '#f2545b'
-  let amb = accent
   const priv = !!curSpace()?.private
-  if (settings().ambient && !priv && t?.themeColor && !isNewtab(t.url) && !t.url.startsWith('caravel:')) amb = t.themeColor
+  // Getönt wird nur mit der Markenfarbe der Website (theme-color) – und nur ganz leicht
+  const amb = settings().ambient && !priv && t?.themeColor && !isNewtab(t.url) && !t.url.startsWith('caravel:') ? t.themeColor : null
   const dark = isDark()
-  const base = toRgb(dark ? '#0a1022' : '#eef1f8')
-  const ambRgb = toRgb(amb)
-  // Privater Space: deutlich violett getönte Leiste, damit man ihn nie mit einem normalen verwechselt
-  const toolbar = toHex(mixRgb(base, ambRgb, priv ? 0.28 : settings().ambient ? (dark ? 0.13 : 0.12) : 0))
+  const base = toRgb(dark ? '#161618' : '#f2f2f1')
+  // Privater Space: Rahmen immer dunkel-violett („Nacht“), damit man ihn nie mit einem normalen verwechselt
+  const toolbar = priv ? '#1e1a29' : toHex(amb ? mixRgb(base, toRgb(amb), dark ? 0.07 : 0.05) : base)
   const root = document.documentElement.style
-  root.setProperty('--ambient', toHex(ambRgb))
+  root.setProperty('--ambient', amb ? toHex(toRgb(amb)) : (curSpace()?.color || '#f2545b'))
   root.setProperty('--toolbar', toolbar)
+  // Palette, Modal und Peek legen einen Schleier über das Fenster – die Windows-Fensterknöpfe dunkeln mit ab
+  const veiled = !$('#modal').hidden || !$('#palette').hidden || !!S.peek
+  const wco = veiled ? toHex(mixRgb(toRgb(toolbar), dark ? [0, 0, 0] : [28, 28, 30], dark ? 0.52 : 0.24)) : toolbar
   const barHeight = parseInt(getComputedStyle(document.body).getPropertyValue('--toolbar-h')) || 44
-  A.send('ui:titlebar', toolbar, dark ? '#e8ecf8' : '#101a33', barHeight)
+  A.send('ui:titlebar', wco, priv ? '#ece9f5' : dark ? '#e6e6e8' : '#1d1d1f', barHeight)
 }
 
 function progress (state) {
@@ -1377,7 +1398,8 @@ function initOmnibox () {
   let sel = 0
   let reqId = 0
 
-  const hide = () => { sugg.hidden = true; items = [] }
+  // reqId hochzählen: verspätete Suchvorschläge dürfen die geschlossene Liste nicht wieder öffnen
+  const hide = () => { sugg.hidden = true; items = []; reqId++ }
   const renderSugg = () => {
     sugg.innerHTML = ''
     items.forEach((it, i) => {
@@ -1446,7 +1468,7 @@ function initOmnibox () {
     const my = ++reqId
     if (!isUrl) {
       A.invoke('suggest', q).then(list => {
-        if (my !== reqId || !list.length) return
+        if (my !== reqId || !list?.length || document.activeElement !== input) return
         const extra = list.filter(p => p.toLowerCase() !== ql).slice(0, 4)
           .map(p => ({ title: p, html: hl(p, q), icon: 'search', fav: false, tag: '', target: searchUrl(p) }))
         items.splice(1, 0, ...extra)
@@ -1819,13 +1841,17 @@ function showModal (html, { wide = false } = {}) {
   const card = $('#modal-card')
   card.className = 'modal' + (wide ? ' wide' : '')
   card.innerHTML = html
+  const wasHidden = ov.hidden
   ov.hidden = false
+  if (wasHidden) updateAmbient() // Fensterknöpfe mit abdunkeln
   card.querySelectorAll('[data-close]').forEach(b => { b.onclick = closeModal })
 }
 function closeModal () {
+  const wasOpen = !$('#modal').hidden
   $('#modal').hidden = true
   $('#modal-card').innerHTML = ''
   S.modalSection = null
+  if (wasOpen) updateAmbient()
   // offene Geräteauswahl gilt als abgebrochen
   if (S.devicePick) { A.send('ui:reply', S.devicePick.reqId, null); S.devicePick = null }
 }
@@ -2259,6 +2285,7 @@ function openPalette () {
   const list = $('#palette-list')
   $('.pi-icon', ov).innerHTML = icon('command')
   ov.hidden = false
+  updateAmbient() // Fensterknöpfe mit abdunkeln
   input.value = ''
   let items = []
   let sel = 0
@@ -2317,7 +2344,11 @@ function openPalette () {
   build()
   setTimeout(() => input.focus(), 0)
 }
-function closePalette () { $('#palette').hidden = true }
+function closePalette () {
+  if ($('#palette').hidden) return
+  $('#palette').hidden = true
+  updateAmbient()
+}
 
 /* ---------------------------------------------------------------------
    Peek
@@ -2336,6 +2367,7 @@ function openPeek (url) {
   wv.setAttribute('src', url)
   $('#peek-body').append(wv)
   S.peek = { wv, url }
+  updateAmbient() // Fensterknöpfe mit abdunkeln
   wv.addEventListener('dom-ready', () => { if (S.peek?.wv === wv) A.send('ui:peek-wc', wv.getWebContentsId()) }, { once: true })
   trackWebview(wv)
   wv.addEventListener('did-navigate', e => { if (S.peek) { S.peek.url = e.url; $('#peek-url').textContent = e.url } })
@@ -2347,6 +2379,7 @@ function closePeek () {
   S.peek = null
   $('#peek').hidden = true
   A.send('ui:peek-wc', null)
+  updateAmbient()
 }
 function initPeek () {
   $('#peek-close').innerHTML = icon('x')
@@ -2390,8 +2423,10 @@ function renderReader () {
   const words = (r.art.text || '').trim().split(/\s+/).length
   const minutes = Math.max(1, Math.round(words / 220))
   const fonts = { serif: "Georgia, 'Iowan Old Style', 'Palatino Linotype', serif", sans: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif" }
-  const colors = { light: ['#fbfaf7', '#1d1d22'], sepia: ['#f4ecd8', '#433422'], dark: ['#15151c', '#dcdce6'] }[r.theme]
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+  const colors = { light: ['#fbfaf7', '#1d1d22'], sepia: ['#f4ecd8', '#433422'], dark: ['#18181b', '#dcdce2'] }[r.theme]
+  // Akzent für Links & Co. passend zum Lesehintergrund aufhellen bzw. abdunkeln (lesbar bei jeder Space-Farbe)
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#f2545b'
+  const accent = r.theme === 'dark' ? `oklch(from ${raw} max(l, .76) min(c, .14) h)` : `oklch(from ${raw} min(l, .5) min(c, .17) h)`
   const doc = `<!doctype html><html lang="${esc(r.art.lang)}"><head><meta charset="utf-8"><base target="_blank"><style>
     html{background:${colors[0]};color-scheme:${r.theme === 'dark' ? 'dark' : 'light'}}
     body{margin:0;color:${colors[1]};font:${r.size}px/1.75 ${fonts[r.font]};-webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-wrap:break-word}
@@ -2410,7 +2445,7 @@ function renderReader () {
     pre{overflow:auto;background:rgba(127,127,127,.12);padding:14px;border-radius:10px}
     blockquote{border-left:3px solid ${accent};margin:1.4em 0;padding:.1em 1.2em;opacity:.85;font-style:italic}
     table{border-collapse:collapse;width:100%;font-size:.9em} td,th{border:1px solid rgba(127,127,127,.3);padding:6px 10px}
-    ::selection{background:${accent}44}
+    ::selection{background:color-mix(in oklab, ${accent} 25%, transparent)}
   </style></head><body><main><div class="site">${esc(r.art.siteName || hostOf(activeTab()?.url))}</div><h1>${esc(r.art.title)}</h1><div class="meta">${r.art.byline ? esc(r.art.byline) + ' · ' : ''}${T('{n} Min. Lesezeit', { n: minutes })}</div>${r.art.content}</main></body></html>`
 
   box.innerHTML = `<div class="reader-bar">
@@ -2422,9 +2457,9 @@ function renderReader () {
       <button class="icon-btn sm" data-r="font" title="${T('Schriftart wechseln')}">${icon('type')}</button>
       <button class="icon-btn sm" data-r="bigger" title="${T('Größer')}">${icon('plus')}</button>
       <span class="rb-sep"></span>
-      <span class="dotc" data-r="light" style="background:#fbfaf7" title="${T('Hell')}"></span>
-      <span class="dotc" data-r="sepia" style="background:#f4ecd8" title="${T('Sepia')}"></span>
-      <span class="dotc" data-r="dark" style="background:#15151c" title="${T('Dunkel')}"></span>
+      <span class="dotc ${r.theme === 'light' ? 'on' : ''}" data-r="light" style="background:#fbfaf7" title="${T('Hell')}"></span>
+      <span class="dotc ${r.theme === 'sepia' ? 'on' : ''}" data-r="sepia" style="background:#f4ecd8" title="${T('Sepia')}"></span>
+      <span class="dotc ${r.theme === 'dark' ? 'on' : ''}" data-r="dark" style="background:#18181b" title="${T('Dunkel')}"></span>
     </div>`
   const frame = document.createElement('iframe')
   frame.setAttribute('sandbox', 'allow-popups')
