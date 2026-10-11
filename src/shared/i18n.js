@@ -292,6 +292,8 @@
     'Auf dieser Seite wurde kein Artikel erkannt.': 'No article was detected on this page.',
 
     // ---- Werbeblocker --------------------------------------------------------
+    'Twitch-Werbepausen überspringen': 'Skip Twitch ad breaks',
+    'Twitch schneidet Werbung direkt in den Videostream. Caravel holt während einer Werbepause eine werbefreie Variante desselben Streams; gibt es keine, steht das Bild kurz still statt Werbung zu zeigen. Twitch ändert sein Werbesystem regelmäßig – das klappt deshalb nicht immer. Wirkt nach dem Neuladen der Seite.': 'Twitch stitches ads directly into the video stream. During an ad break Caravel fetches an ad-free variant of the same stream; if there is none, the picture pauses briefly instead of showing the ad. Twitch changes its ad system regularly, so this doesn’t always work. Takes effect after reloading the page.',
     'Mit den Filterlisten von uBlock Origin – blockiert Werbung (auch auf YouTube), Tracker und Schadseiten.': 'Using uBlock Origin’s filter lists – blocks ads (including on YouTube), trackers and malicious sites.',
     'auf dieser Seite': 'on this page',
     'insgesamt': 'in total',

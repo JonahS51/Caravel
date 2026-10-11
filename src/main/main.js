@@ -13,6 +13,7 @@ const { installChromeWebStore, installExtension, uninstallExtension } = require(
 const { Store } = require('./store')
 const { FocusGuard } = require('./focus')
 const { AdBlock } = require('./adblock')
+const { twitchAdScript } = require('./twitch-ads')
 const { CastManager } = require('./cast')
 const { VpnManager } = require('./vpn')
 const { CrxCompat } = require('./crx-compat')
@@ -1094,7 +1095,12 @@ function registerIpc () {
 
   // Werbeblocker
   ipcMain.on('adblock:scriptlets', (e, url) => {
-    try { e.returnValue = adblock?.scriptletsFor(url) || [] } catch { e.returnValue = [] }
+    try {
+      const scripts = adblock?.scriptletsFor(url) || []
+      // Twitch-Werbepausen: eigenes Skript, nur mit aktivem Werbeblocker und nicht auf pausierten Seiten
+      const twitch = adblock?.enabled && store.get('settings').twitchAds !== false && !adblock.isAllowed(url) ? twitchAdScript(url) : null
+      e.returnValue = twitch ? [...scripts, twitch] : scripts
+    } catch { e.returnValue = [] }
   })
   ipcMain.handle('adblock:info', () => ({
     enabled: adblock.enabled, status: adblock.status, updated: adblock.updated, total: adblock.blockedTotal

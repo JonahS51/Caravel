@@ -10,6 +10,7 @@ const DEFAULTS = {
     ambient: true,
     adblock: true,
     adblockCookies: false,
+    twitchAds: true, // Twitch-Werbepausen überspringen (eigenes Skript, siehe twitch-ads.js)
     adblockAllowlist: [],
     sleepMinutes: 30,
     focusMinutes: 25,
