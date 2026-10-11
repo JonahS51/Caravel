@@ -13,7 +13,7 @@ eingebautem VPN, Chrome-Erweiterungen und Chromecast.
 
 ## Installation
 
-`dist/Caravel-Setup-4.0.0.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
+`dist/Caravel-Setup-4.0.1.exe` ausführen. Der Installer fragt nach dem Zielordner, legt Verknüpfungen an und
 registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installierte Programm braucht kein Node.js.
 
 ## Funktionen
@@ -27,7 +27,7 @@ registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installi
 | **Seite an die KI übergeben / zusammenfassen**, Auswahl erklären/übersetzen | `Strg+Umschalt+L`, Rechtsklick |
 | **Claude in Chrome** – offizielle Erweiterung über eine Kompatibilitätsschicht | Einstellungen › KI-Assistent (Claude) |
 | **MCP-Server für Claude Code und Codex** – Tabs öffnen, lesen, klicken, ausfüllen, Screenshots | Einstellungen › KI-Assistent |
-| **Werbeblocker** mit uBlock-Origin-Listen inkl. YouTube-Werbung | Schild in der Adressleiste |
+| **Werbeblocker** mit uBlock-Origin-Listen inkl. YouTube-Werbung, überspringt Twitch-Werbepausen | Schild in der Adressleiste |
 | **VPN** – Tor mit Länderwahl (kostenlos) oder eigene Server (WireGuard, SOCKS5, HTTP) | „VPN“ oben rechts |
 | **Tab-Leiste wählbar** – Caravel (Seitenleiste), Chrome (oben) oder Safari (unter der Adressleiste), Favoritenleiste, kompakte Darstellung | Einstellungen › Darstellung |
 | **Websites abdunkeln** – Seiten ohne eigenen Dunkelmodus werden im dunklen Design automatisch dunkel | Einstellungen › Darstellung |
@@ -140,7 +140,7 @@ a built-in VPN, Chrome extensions and Chromecast.
 
 ## Installation
 
-Run `dist/Caravel-Setup-4.0.0.exe`. The installer asks for the target folder, creates shortcuts and registers
+Run `dist/Caravel-Setup-4.0.1.exe`. The installer asks for the target folder, creates shortcuts and registers
 Caravel as a browser in Windows “Default apps”. The installed program does not need Node.js.
 
 ## Features
@@ -154,7 +154,7 @@ Caravel as a browser in Windows “Default apps”. The installed program does n
 | **Send the page to the AI / summarize it**, explain or translate a selection | `Ctrl+Shift+L`, right-click |
 | **Claude in Chrome** – the official extension via a compatibility layer | Settings › AI assistant (Claude) |
 | **MCP server for Claude Code and Codex** – open, read, click and fill tabs, take screenshots | Settings › AI assistant |
-| **Ad blocker** with the uBlock Origin lists, including YouTube ads | Shield in the address bar |
+| **Ad blocker** with the uBlock Origin lists, including YouTube ads; skips Twitch ad breaks | Shield in the address bar |
 | **VPN** – Tor with country selection (free) or your own servers (WireGuard, SOCKS5, HTTP) | “VPN” at the top right |
 | **Choice of tab bar** – Caravel (sidebar), Chrome (top) or Safari (below the address bar), favorites bar, compact mode | Settings › Appearance |
 | **Darken websites** – pages without their own dark mode are darkened automatically in the dark theme | Settings › Appearance |
