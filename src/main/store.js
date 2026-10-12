@@ -66,6 +66,8 @@ const DEFAULTS = {
   permissions: {},
   // Einstellungen pro Website (Hostname): { zoom, popups: 'allow'|'block', sound: 'mute' }
   sites: {},
+  // Boosts pro Website (Hostname): { hide: [Selektoren], css, js, off }
+  boosts: {},
   downloadHistory: [], // abgeschlossene Downloads (überdauern Neustarts)
   pwNever: [], // Websites, für die nie Passwörter gespeichert werden sollen
   unpackedExtensions: [],

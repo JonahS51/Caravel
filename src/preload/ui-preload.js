@@ -28,7 +28,8 @@ const INVOKES = new Set([
   'tab:history', 'tab:prepare-restore', 'tab:save-page', 'app:open-file', 'app:file-url', 'app:pick-folder',
   'private:clear', 'site:clear-data', 'update:state', 'update:check',
   'pw:list', 'pw:reveal', 'pw:delete', 'pw:update', 'pw:never-remove', 'pw:import', 'pw:export',
-  'import:sources', 'import:run', 'agent:status', 'agent:set-key', 'agent:run'
+  'import:sources', 'import:run', 'agent:status', 'agent:set-key', 'agent:run',
+  'boost:apply', 'boost:pick'
 ])
 
 const sources = {}

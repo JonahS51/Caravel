@@ -19,6 +19,7 @@ const { VpnManager } = require('./vpn')
 const { CrxCompat } = require('./crx-compat')
 const { McpServer } = require('./mcp-server')
 const { BrowserAgent, MODEL: AGENT_MODEL } = require('./agent')
+const { Boosts } = require('./boosts')
 const { Updater } = require('./updater')
 const { PasswordStore } = require('./passwords')
 const importer = require('./importer')
@@ -62,6 +63,7 @@ let crx = null
 let mcp = null
 let mcpError = null
 let agent = null
+let boosts = null
 let tabsSession = null
 let privateSession = null
 let updater = null
@@ -338,6 +340,7 @@ function setupTab (wc) {
   focusGuard.attach(wc)
   vpn.track(wc)
   autodark.track(wc)
+  boosts.track(wc)
 }
 
 function showContextMenu (wc, params) {
@@ -439,6 +442,7 @@ function showContextMenu (wc, params) {
     if (extItems.length) { sep(); items.push(...extItems); sep() }
   } catch {}
 
+  if (/^https?:/.test(wc.getURL())) items.push({ label: t('Element ausblenden …'), click: action('boost-pick') })
   items.push({ label: t('Untersuchen'), click: () => { wc.inspectElement(params.x, params.y) } })
   Menu.buildFromTemplate(items).popup({ window: win })
 }
@@ -1177,6 +1181,19 @@ function registerIpc () {
   })
   ipcMain.on('app:relaunch', () => { app.relaunch(); app.quit() })
 
+  // Boosts: nach dem Bearbeiten sofort neu anwenden; Pipette „Element ausblenden“
+  ipcMain.handle('boost:apply', (_e, wcId) => {
+    const wc = webContents.fromId(wcId)
+    if (wc && !wc.isDestroyed()) boosts.apply(wc)
+    return true
+  })
+  ipcMain.handle('boost:pick', (_e, wcId) => {
+    const wc = webContents.fromId(wcId)
+    if (!wc || wc.isDestroyed() || !/^https?:/.test(wc.getURL())) return null
+    wc.focus()
+    return boosts.pick(wc, t('Element anklicken, das ausgeblendet werden soll · Esc bricht ab'))
+  })
+
   // KI-Agent im Browser (Claude-API, siehe agent.js)
   ipcMain.handle('agent:status', () => ({ hasKey: agent.hasKey(), model: AGENT_MODEL, running: !!agent.running, turns: agent.messages.length }))
   ipcMain.handle('agent:set-key', (_e, key) => agent.setKey(key))
@@ -1554,6 +1571,7 @@ app.whenReady().then(async () => {
   updater = new Updater({ send, getSettings: () => store.get('settings') })
   passwords = new PasswordStore(app.getPath('userData'))
 
+  boosts = new Boosts(() => store.get('boosts'))
   focusGuard = new FocusGuard(url => `caravel://blocked/?url=${encodeURIComponent(url)}`)
   cast = new CastManager(send)
   cast.discovery.start() // wie Chrome: Geräte im Hintergrund suchen, damit Cast-Knöpfe sofort erscheinen

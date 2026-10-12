@@ -1444,6 +1444,7 @@ function updateOmnibox () {
   else if (url.startsWith('file:')) site.innerHTML = icon('file')
   else if (url.startsWith('chrome-extension:')) site.innerHTML = icon('puzzle')
   else site.innerHTML = icon('globe')
+  if (/^https?:/.test(url) && boostActive(url)) site.insertAdjacentHTML('beforeend', `<span class="omni-boost" title="${T('Boost aktiv')}">${icon('bolt')}</span>`)
   if (curSpace()?.private) site.insertAdjacentHTML('beforeend', `<span class="omni-tag">${T('Privat')}</span>`)
 }
 
@@ -2359,6 +2360,8 @@ function commands () {
     { title: 'Datei öffnen …', icon: 'file', hint: 'Strg+O', run: openFile },
     { title: 'Alle Tabs als Favoriten speichern', icon: 'star', run: () => bookmarkAllTabs() },
     { title: 'Website-Einstellungen', icon: 'lock', run: openSitePopover },
+    { title: 'Boost für diese Website', icon: 'bolt', run: () => openBoostDialog() },
+    { title: 'Element ausblenden', icon: 'eye', run: () => pickElement() },
     { title: 'Passwörter verwalten', icon: 'key', run: () => openSettings('passwords') },
     { title: 'Favoriten und Verlauf importieren', icon: 'importIcon', run: openImportDialog },
     { title: 'Nach Updates suchen', icon: 'refresh', run: () => openSettings('about') },
@@ -2731,7 +2734,8 @@ function openSitePopover () {
     </div>
     ${cfg.zoom ? `<div class="flex" style="margin-top:10px"><span class="grow muted">${T('Zoom: {pct} %', { pct })}</span><button class="btn ghost sm" id="site-zoom">${T('Zurücksetzen')}</button></div>` : ''}
     <div class="pop-sep"></div>
-    <div class="flex" style="gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="site-clear">${icon('trash')} ${T('Cookies und Website-Daten löschen')}</button><button class="btn ghost sm" id="site-all">${T('Alle Website-Einstellungen')}</button></div>`
+    <div class="flex" style="gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="site-boost">${icon('bolt')} ${boostOf(t.url) ? T('Boost bearbeiten …') : T('Boost …')}</button><button class="btn ghost sm" id="site-pick">${icon('eye')} ${T('Element ausblenden …')}</button></div>
+    <div class="flex" style="gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn ghost sm" id="site-clear">${icon('trash')} ${T('Cookies und Website-Daten löschen')}</button><button class="btn ghost sm" id="site-all">${T('Alle Website-Einstellungen')}</button></div>`
   const p = showPopover($('#omni-site'), html, 'site', 340)
   p.style.left = Math.max(8, $('#omni-site').getBoundingClientRect().left - 8) + 'px'
   p.querySelectorAll('select[data-k]').forEach(s => {
@@ -2761,6 +2765,94 @@ function openSitePopover () {
     if (t.ready) t.webview.reload()
   }
   $('#site-all', p).onclick = () => openSettings('privacy')
+  $('#site-boost', p).onclick = () => openBoostDialog(host)
+  $('#site-pick', p).onclick = () => pickElement(t)
+}
+
+/* ---------------------------------------------------------------------
+   Boosts: eigene Anpassungen pro Website (ausgeblendete Elemente, CSS, JavaScript – siehe main/boosts.js)
+   --------------------------------------------------------------------- */
+
+const boostOf = url => S.data.boosts?.[hostOf(url)] || null
+const boostActive = url => { const b = boostOf(url); return !!b && !b.off && !!((b.hide || []).length || b.css?.trim() || b.js?.trim()) }
+
+// Sofort speichern und in allen offenen Tabs der Website neu anwenden
+function saveBoosts (host) {
+  clearTimeout(saveTimers.boosts)
+  A.send('store:set', 'boosts', S.data.boosts)
+  for (const t of S.tabs.values()) if (t.wcId && hostOf(t.url) === host) A.invoke('boost:apply', t.wcId).catch(() => {})
+  updateOmnibox()
+}
+
+function setBoost (host, patch) {
+  S.data.boosts = S.data.boosts || {}
+  const b = { hide: [], css: '', js: '', ...(S.data.boosts[host] || {}), ...patch }
+  if (!b.hide.length && !b.css.trim() && !b.js.trim()) delete S.data.boosts[host]
+  else S.data.boosts[host] = b
+  saveBoosts(host)
+}
+
+async function pickElement (tab = activeTab()) {
+  if (!tab?.wcId || !/^https?:/.test(tab.url)) return toast('Nicht möglich', 'Öffne zuerst eine Website.', 'bolt')
+  closeFloating()
+  const host = hostOf(tab.url)
+  const sel = await A.invoke('boost:pick', tab.wcId).catch(() => null)
+  if (!sel) return
+  const b = boostOf(tab.url)
+  setBoost(host, { hide: [...new Set([...(b?.hide || []), sel])], off: false })
+  toast('Element ausgeblendet', T('Bleibt auf {host} ausgeblendet.', { host }), 'bolt', {
+    actions: [
+      { label: 'Rückgängig', run: () => { setBoost(host, { hide: (boostOf(tab.url)?.hide || []).filter(s => s !== sel) }); if (tab.ready) tab.webview.reload() } },
+      { label: 'Noch eins', run: () => pickElement(tab) }
+    ],
+    duration: 6000
+  })
+}
+
+function openBoostDialog (host = hostOf(activeTab()?.url || '')) {
+  if (!host) return toast('Nicht möglich', 'Öffne zuerst eine Website.', 'bolt')
+  closeFloating()
+  const b = { hide: [], css: '', js: '', ...(S.data.boosts?.[host] || {}) }
+  const tab = activeTab()
+  const onSite = tab && hostOf(tab.url) === host
+  showModal(`
+    <div class="modal-head"><h2>${icon('bolt')} ${esc(T('Boost für {host}', { host }))}</h2><button class="icon-btn sm" data-close>${icon('x')}</button></div>
+    <div class="modal-body">
+      <p class="muted" style="margin-top:0;line-height:1.5">${T('Passe die Website dauerhaft an: störende Elemente ausblenden, eigenes CSS oder eigenes JavaScript. Gilt nur in Caravel und nur auf dieser Website.')}</p>
+      <div class="set-row" style="padding:0 0 12px;border:0"><div><div class="t">${T('Boost aktiv')}</div></div><label class="switch"><input type="checkbox" id="bo-on" ${b.off ? '' : 'checked'}><span></span></label></div>
+      <div class="field"><label>${T('Ausgeblendete Elemente')}</label>
+        <div id="bo-hide">${b.hide.length ? b.hide.map((s, i) => `<div class="flex bo-sel"><code class="grow">${esc(s)}</code><button class="icon-btn sm" data-del="${i}" title="${T('Entfernen')}">${icon('x')}</button></div>`).join('') : `<div class="muted" style="font-size:12px">${T('Keine – mit der Pipette oder per Rechtsklick › „Element ausblenden …“ hinzufügen.')}</div>`}</div>
+        ${onSite ? `<button class="btn ghost sm" id="bo-pick" style="align-self:flex-start;margin-top:4px">${icon('eye')} ${T('Element auswählen …')}</button>` : ''}
+      </div>
+      <div class="field"><label>CSS</label><textarea class="input code-area" id="bo-css" rows="6" spellcheck="false" placeholder="body { font-size: 18px; }">${esc(b.css)}</textarea></div>
+      <div class="field"><label>JavaScript</label><textarea class="input code-area" id="bo-js" rows="5" spellcheck="false" placeholder="document.querySelector('video')?.play()">${esc(b.js)}</textarea>
+        <span class="hint">${T('Läuft bei jedem Seitenaufruf mit den Rechten der Website. Nur Code verwenden, den du verstehst.')}</span></div>
+    </div>
+    <div class="modal-foot">
+      ${S.data.boosts?.[host] ? `<button class="btn ghost" id="bo-del" style="color:#f87171">${T('Boost löschen')}</button><span class="grow"></span>` : ''}
+      <button class="btn ghost" data-close>${T('Abbrechen')}</button><button class="btn" id="bo-save">${T('Speichern')}</button>
+    </div>`, { wide: false })
+  const hide = [...b.hide]
+  $('#bo-hide').onclick = e => {
+    const d = e.target.closest('[data-del]'); if (!d) return
+    hide.splice(+d.dataset.del, 1)
+    d.closest('.bo-sel').remove()
+  }
+  const collect = () => ({ hide, css: $('#bo-css').value, js: $('#bo-js').value, off: !$('#bo-on').checked })
+  $('#bo-save').onclick = () => {
+    const prev = S.data.boosts?.[host]
+    const next = collect()
+    closeModal()
+    setBoost(host, next)
+    // Entfernte Ausblendungen und geändertes JavaScript wirken erst nach dem Neuladen
+    const needsReload = (prev?.js || '') !== next.js || (prev?.hide || []).some(s => !next.hide.includes(s)) || (!!prev?.off !== next.off && next.off)
+    if (needsReload && onSite && tab.ready) tab.webview.reload()
+    toast('Boost gespeichert', host, 'bolt', { duration: 2200 })
+  }
+  const pick = $('#bo-pick')
+  if (pick) pick.onclick = () => { setBoost(host, collect()); closeModal(); pickElement(tab) }
+  const del = $('#bo-del')
+  if (del) del.onclick = () => { closeModal(); delete S.data.boosts[host]; saveBoosts(host); if (onSite && tab.ready) tab.webview.reload(); toast('Boost gelöscht', host, 'trash') }
 }
 
 /* ---------------------------------------------------------------------
@@ -3931,7 +4023,13 @@ async function openSettings (section = 'general') {
         ? row(T('Kompakte Seitenleiste'), T('Nur Symbole anzeigen (Strg+B).'), toggle('sidebarCollapsed', st.sidebarCollapsed))
         : row(T('Favoritenleiste'), T('Deine Favoriten als Leiste unter der Adressleiste (Strg+B).'), toggle('showFavbar', st.showFavbar !== false))}
       ${row(T('Kompakte Darstellung'), T('Niedrigere Leisten und Tabs – mehr Platz für Webseiten.'), toggle('compactUi', st.compactUi))}
-      ${row(T('Space-Farbe'), T('Jeder Space hat seine eigene Akzentfarbe – per Rechtsklick auf das Space-Symbol änderbar.'), `<button class="btn ghost" id="set-space">${T('Aktuellen Space bearbeiten')}</button>`)}`,
+      ${row(T('Space-Farbe'), T('Jeder Space hat seine eigene Akzentfarbe – per Rechtsklick auf das Space-Symbol änderbar.'), `<button class="btn ghost" id="set-space">${T('Aktuellen Space bearbeiten')}</button>`)}
+      <div class="set-row" style="display:block"><div class="t">${T('Boosts')}</div><div class="d">${T('Eigene Anpassungen pro Website: Elemente ausblenden, eigenes CSS und JavaScript. Anlegen über das Schloss-Symbol in der Adressleiste oder per Rechtsklick › „Element ausblenden …“.')}</div>
+        ${Object.keys(S.data.boosts || {}).length ? Object.entries(S.data.boosts).map(([host, b]) => `<div class="flex" style="margin-top:8px"><span class="grow" style="word-break:break-all">${esc(host)}<br><span class="muted" style="font-size:12px">${[
+          b.off ? T('pausiert') : '',
+          (b.hide || []).length ? T('{n} ausgeblendet', { n: b.hide.length }) : '',
+          b.css?.trim() ? 'CSS' : '', b.js?.trim() ? 'JavaScript' : ''].filter(Boolean).join(' · ')}</span></span><button class="btn ghost sm" data-boost="${esc(host)}">${T('Bearbeiten')}</button></div>`).join('') : `<div class="d" style="margin-top:6px">${T('Noch keine Boosts.')}</div>`}
+      </div>`,
     claude: `<h3>${T('KI-Assistent')}</h3>
       ${row(T('Assistent'), T('Welcher KI-Dienst in Caravel eingebunden wird. Bei „Keiner“ verschwinden Seitenleiste, Kontextmenü-Einträge und Agenten-Schnittstelle vollständig.'),
         `<div class="seg" data-seg="assistant">${[['claude', 'Claude'], ['chatgpt', 'ChatGPT'], ['none', T('Keiner')]].map(([k, l]) => `<button data-v="${k}" class="${(st.assistant || 'claude') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
@@ -4059,6 +4157,7 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
       toast('Gelöscht', { cache: 'Cache geleert', cookies: 'Alle Cookies entfernt', storage: 'Website-Daten entfernt', history: 'Verlauf gelöscht' }[what], 'trash')
     }
   })
+  card.querySelectorAll('[data-boost]').forEach(b => { b.onclick = () => openBoostDialog(b.dataset.boost) })
   card.querySelectorAll('[data-perm]').forEach(b => {
     b.onclick = () => { delete S.data.permissions[b.dataset.perm]; save('permissions'); openSettings('privacy') }
   })
@@ -4663,6 +4762,7 @@ function initGlobalEvents () {
     if (action === 'private') openPrivate(url)
     if (action === 'translate') openTranslatePopover()
     if (action === 'save-page') savePage()
+    if (action === 'boost-pick') pickElement(t)
   })
   A.on('ext:create-tab', async ({ reqId, url, active }) => {
     const t = createTab({ url: url || NEWTAB, background: !active, spaceId: normalSpaceId() })
