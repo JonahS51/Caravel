@@ -658,7 +658,12 @@ textarea.code-area { font: 12px/1.5 var(--mono); height: auto; padding: 8px 10px
 .toast .t-body { flex: 1; min-width: 0; }
 .toast .t-title { font-weight: 600; }
 .toast .t-text { color: var(--text-2); font-size: var(--fs-md); line-height: 1.45; }
-.toast img.shot { width: 120px; border-radius: var(--r); box-shadow: 0 0 0 1px var(--line); }
+/* Screenshot-Auswahl über der Seite */
+.shot-overlay { position: fixed; z-index: 60; cursor: crosshair; background: rgba(0, 0, 0, .28); outline: none; }
+.shot-sel { position: absolute; border: 1.5px solid #fff; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .25); background: rgba(255, 255, 255, .06); pointer-events: none; }
+.shot-bar { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; border-radius: var(--r-md); background: var(--elev); box-shadow: var(--shadow-pop); cursor: default; }
+.shot-hint { font-size: var(--fs-sm); color: var(--text-2); margin-right: 6px; white-space: nowrap; }
+.toast img.shot { max-height: 160px; object-fit: cover; object-position: top; width: 120px; border-radius: var(--r); box-shadow: 0 0 0 1px var(--line); }
 
 /* Berechtigungs-Abfrage (mittig unter der Leiste; zentriert per margin, damit die Einblendung nicht springt) */
 .perm { position: fixed; z-index: 110; top: calc(var(--toolbar-h) + 8px); left: 50%; width: 420px; margin-left: -210px; padding: 16px; background: var(--elev); border-radius: var(--r-lg); box-shadow: var(--shadow-pop); animation: pop var(--d-2) var(--ease); }

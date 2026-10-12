@@ -4492,11 +4492,73 @@ function showShortcuts () {
    Aktionen
    --------------------------------------------------------------------- */
 
-async function screenshot () {
+// Strg+Umschalt+X: Bereich aufziehen oder sichtbaren Bereich bzw. ganze Seite aufnehmen
+function screenshot () {
   const t = activeTab()
+  if (!t?.wcId || !t.webview) return
+  closeFloating()
+  closeShotOverlay()
+  const r = t.webview.getBoundingClientRect()
+  const ov = document.createElement('div')
+  ov.id = 'shot-overlay'
+  ov.className = 'shot-overlay'
+  Object.assign(ov.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' })
+  ov.innerHTML = `<div class="shot-sel" hidden></div>
+    <div class="shot-bar">
+      <span class="shot-hint">${T('Bereich aufziehen')}</span>
+      <button class="btn ghost sm" data-shot="visible">${icon('monitor')} ${T('Sichtbarer Bereich')}</button>
+      <button class="btn ghost sm" data-shot="full">${icon('file')} ${T('Ganze Seite')}</button>
+      <button class="icon-btn sm" data-shot="close" title="${T('Abbrechen (Esc)')}">${icon('x')}</button>
+    </div>`
+  document.body.append(ov)
+  ov.tabIndex = -1
+  ov.focus() // Esc soll die Auswahl schließen, auch wenn vorher die Seite den Fokus hatte
+  S.shot = { tab: t }
+  const sel = $('.shot-sel', ov)
+  let start = null
+  ov.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.target.closest('.shot-bar')) return
+    e.preventDefault()
+    const o = ov.getBoundingClientRect()
+    start = { x: e.clientX - o.left, y: e.clientY - o.top }
+    sel.hidden = false
+    Object.assign(sel.style, { left: start.x + 'px', top: start.y + 'px', width: 0, height: 0 })
+    const rect = ev => {
+      const x = Math.max(0, Math.min(o.width, ev.clientX - o.left))
+      const y = Math.max(0, Math.min(o.height, ev.clientY - o.top))
+      return { x: Math.min(x, start.x), y: Math.min(y, start.y), width: Math.abs(x - start.x), height: Math.abs(y - start.y) }
+    }
+    const move = ev => { const q = rect(ev); Object.assign(sel.style, { left: q.x + 'px', top: q.y + 'px', width: q.width + 'px', height: q.height + 'px' }) }
+    const up = ev => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      const q = rect(ev)
+      if (q.width < 6 || q.height < 6) { sel.hidden = true; return }
+      // capturePage erwartet Koordinaten der Webview-Fläche (unabhängig vom Seiten-Zoom)
+      closeShotOverlay()
+      takeScreenshot(t, q)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  })
+  ov.querySelector('.shot-bar').onclick = e => {
+    const b = e.target.closest('[data-shot]'); if (!b) return
+    closeShotOverlay()
+    if (b.dataset.shot !== 'close') takeScreenshot(t, b.dataset.shot)
+  }
+}
+
+function closeShotOverlay () {
+  $('#shot-overlay')?.remove()
+  S.shot = null
+}
+
+async function takeScreenshot (t, mode = 'visible') {
   if (!t?.wcId) return
-  const r = await A.invoke('tab:screenshot', t.wcId)
-  if (!r) return
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))) // Auswahlrahmen erst verschwinden lassen
+  if (mode === 'full') toast('Ganze Seite wird aufgenommen …', '', 'camera', { duration: 1500 })
+  const r = await A.invoke('tab:screenshot', t.wcId, mode).catch(() => null)
+  if (!r) return toast('Screenshot fehlgeschlagen', '', 'warning')
   toast('Screenshot gespeichert', 'In die Zwischenablage kopiert und unter Bilder › Caravel abgelegt.', 'camera', {
     image: r.dataUrl,
     actions: [{ label: 'Ordner', run: () => A.send('dl:show', r.file) }],
@@ -4687,6 +4749,7 @@ function handleShortcut (combo) {
 }
 
 function closeTopLayer () {
+  if (S.shot) return closeShotOverlay()
   if (!$('#menu').hidden) return hideMenu()
   if (!$('#popover').hidden) return hidePopover()
   if (!$('#palette').hidden) return closePalette()

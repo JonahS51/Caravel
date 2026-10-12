@@ -902,6 +902,14 @@
     'Unbekannte Quelle': 'Unknown source',
     'Der Verlauf ist gesperrt – bitte den Browser schließen und erneut versuchen.': 'The history is locked – please close the browser and try again.',
 
+    // ---- Screenshot ------------------------------------------------------------
+    'Bereich aufziehen': 'Drag to select an area',
+    'Sichtbarer Bereich': 'Visible area',
+    'Ganze Seite': 'Full page',
+    'Abbrechen (Esc)': 'Cancel (Esc)',
+    'Ganze Seite wird aufgenommen …': 'Capturing the full page …',
+    'Screenshot fehlgeschlagen': 'Screenshot failed',
+
     // ---- Mini-Player -----------------------------------------------------------
     'Mini-Player': 'Mini player',
     'Läuft ein Video mit Ton und du wechselst den Tab, spielt es in einem kleinen schwebenden Fenster weiter. Zurück im Tab verschwindet es wieder.': 'If a video with sound is playing and you switch tabs, it keeps playing in a small floating window. Back in the tab, it disappears again.',

@@ -1,7 +1,7 @@
 // Caravel – Hauptprozess
 const {
   app, BrowserWindow, session, ipcMain, protocol, net, Menu, clipboard, shell,
-  dialog, webContents, nativeTheme, nativeImage, desktopCapturer
+  dialog, webContents, nativeTheme, nativeImage, desktopCapturer, ClipboardItem
 } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
@@ -1078,15 +1078,24 @@ function registerIpc () {
     syncActiveTab()
   })
 
-  ipcMain.handle('tab:screenshot', async (_e, wcId) => {
+  // mode: 'visible' (sichtbarer Bereich), 'full' (ganze Seite) oder { x, y, width, height } (Ausschnitt)
+  ipcMain.handle('tab:screenshot', async (_e, wcId, mode = 'visible') => {
     const wc = webContents.fromId(wcId)
     if (!wc) return null
-    const image = await wc.capturePage()
-    clipboard.writeImage(image)
+    let image
+    if (mode === 'full') image = await captureFullPage(wc)
+    else if (mode && typeof mode === 'object') {
+      const r = { x: Math.round(mode.x), y: Math.round(mode.y), width: Math.round(mode.width), height: Math.round(mode.height) }
+      if (r.width < 2 || r.height < 2) return null
+      image = await wc.capturePage(r)
+    } else image = await wc.capturePage()
+    if (!image || image.isEmpty()) return null
+    // Electron 44 kennt nur noch die asynchrone Clipboard-API (writeImage gibt es nicht mehr)
+    await clipboard.write([new ClipboardItem({ 'image/png': new Blob([image.toPNG()], { type: 'image/png' }) })]).catch(err => console.warn('[screenshot] Zwischenablage', err.message))
     const dir = path.join(app.getPath('pictures'), 'Caravel')
     fs.mkdirSync(dir, { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const file = path.join(dir, `Screenshot ${stamp}.png`)
+    const file = uniquePath(dir, `Screenshot ${stamp}.png`) // mehrere in derselben Sekunde nicht überschreiben
     fs.writeFileSync(file, image.toPNG())
     return { file, dataUrl: image.resize({ width: 480 }).toDataURL() }
   })
@@ -1398,6 +1407,27 @@ function registerIpc () {
       searchTemplate: searchUrl('%QUERY%')
     }
   })
+}
+
+// Ganze Seite über das DevTools-Protokoll (captureBeyondViewport). Ist der Debugger schon verbunden
+// (z. B. Claude in Chrome), wird die bestehende Verbindung mitbenutzt.
+async function captureFullPage (wc) {
+  const dbg = wc.debugger
+  const own = !dbg.isAttached()
+  if (own) dbg.attach('1.3')
+  try {
+    const m = await dbg.sendCommand('Page.getLayoutMetrics')
+    const size = m.cssContentSize || m.contentSize
+    const width = Math.ceil(size.width)
+    const height = Math.min(Math.ceil(size.height), 16000) // Chromium-Grenze für Bildgrößen
+    const shot = await dbg.sendCommand('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } })
+    return nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64'))
+  } catch (err) {
+    console.warn('[screenshot] ganze Seite', err.message)
+    return wc.capturePage()
+  } finally {
+    if (own) { try { dbg.detach() } catch {} }
+  }
 }
 
 function hasClaudeNativeHost () {
