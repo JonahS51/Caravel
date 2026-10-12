@@ -902,6 +902,28 @@
     'Unbekannte Quelle': 'Unknown source',
     'Der Verlauf ist gesperrt – bitte den Browser schließen und erneut versuchen.': 'The history is locked – please close the browser and try again.',
 
+    // ---- Tab-Archiv ----------------------------------------------------------
+    'Tab-Archiv': 'Tab archive',
+    'Tab-Archiv anzeigen': 'Show tab archive',
+    'Tab archivieren': 'Archive tab',
+    'Archivieren': 'Archive',
+    'Tab archiviert': 'Tab archived',
+    '{n} Tabs archiviert': '{n} tabs archived',
+    'Länger nicht genutzte Tabs liegen jetzt im Tab-Archiv.': 'Tabs you haven’t used in a while are now in the tab archive.',
+    'Tabs, die du {time} nicht benutzt hast, landen automatisch hier – mit Verlauf. Ein Klick holt sie zurück.': 'Tabs you haven’t used for {time} end up here automatically – with their history. One click brings them back.',
+    'Archivierte Tabs bleiben mit ihrem Verlauf erhalten. Automatisches Archivieren lässt sich unter Einstellungen › Leistung einschalten.': 'Archived tabs keep their history. Automatic archiving can be turned on under Settings › Performance.',
+    'Archiv durchsuchen …': 'Search archive …',
+    'Das Archiv ist leer': 'The archive is empty',
+    'Archiv leeren': 'Clear archive',
+    'Archiv leeren?': 'Clear archive?',
+    'Alle archivierten Tabs werden endgültig entfernt.': 'All archived tabs will be removed permanently.',
+    'Leeren': 'Clear',
+    'Tabs automatisch archivieren': 'Archive tabs automatically',
+    'Tabs, die du so lange nicht benutzt hast, wandern ins Tab-Archiv – mit Verlauf, durchsuchbar und mit einem Klick zurückgeholt. Angeheftete Tabs und Tabs mit Ton bleiben.': 'Tabs you haven’t used for this long move to the tab archive – with their history, searchable and back with one click. Pinned tabs and tabs playing sound stay.',
+    '1 Tag': '1 day',
+    '{n} Tage': '{n} days',
+    '1 Woche': '1 week',
+
     // ---- KI-Agent ------------------------------------------------------------
     'Claude erledigt Aufgaben direkt in deinen Tabs': 'Claude gets things done right in your tabs',
     'Agent': 'Agent',

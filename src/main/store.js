@@ -13,6 +13,7 @@ const DEFAULTS = {
     twitchAds: true, // Twitch-Werbepausen überspringen (eigenes Skript, siehe twitch-ads.js)
     adblockAllowlist: [],
     sleepMinutes: 30,
+    archiveHours: 0, // Tabs nach so vielen Stunden ohne Nutzung archivieren (0 = nie)
     focusMinutes: 25,
     focusBlocklist: [
       'youtube.com', 'reddit.com', 'x.com', 'twitter.com', 'instagram.com',
@@ -59,6 +60,7 @@ const DEFAULTS = {
     { id: 'bm-4', url: 'https://github.com/', title: 'GitHub' }
   ],
   history: [],
+  archive: [], // archivierte Tabs { id, url, title, favicon, spaceId, spaceName, archived, nav }
   notes: {},
   snapshots: [],
   permissions: {},

@@ -210,7 +210,7 @@ const tabByWc = wcId => [...S.tabs.values()].find(t => t.wcId === wcId) ||
   [...S.tabs.values()].find(t => { try { return !!t.webview && t.webview.getWebContentsId() === wcId } catch { return false } })
 const spaceTabs = sp => sp.tabIds.map(getTab).filter(Boolean)
 
-function createTab ({ url = null, spaceId = S.activeSpace, background = false, pinned = false, sleeping = false, title, favicon, afterId, silent = false, nav = null } = {}) {
+function createTab ({ url = null, spaceId = S.activeSpace, background = false, pinned = false, sleeping = false, title, favicon, afterId, silent = false, nav = null, lastActive = null } = {}) {
   const sp = space(spaceId) || curSpace()
   // view-source: (z. B. aus älteren Sitzungen) lädt in Electron-Webviews nie fertig → eigene Quelltext-Seite
   if (url && /^view-source:/i.test(url)) { url = sourceUrl(url.slice(12)); nav = null }
@@ -235,7 +235,7 @@ function createTab ({ url = null, spaceId = S.activeSpace, background = false, p
     nav, // gespeicherter Vor/Zurück-Verlauf { index, entries } – wird beim Aufwecken wiederhergestellt
     blockedPopups: [],
     lang: '',
-    lastActive: Date.now(),
+    lastActive: lastActive || Date.now(), // aus der Sitzung übernommen, damit das Tab-Archiv Neustarts überdauert
     el: null
   }
   S.tabs.set(tab.id, tab)
@@ -510,6 +510,109 @@ async function duplicateTab (tab) {
 }
 
 /* ---------------------------------------------------------------------
+   Tab-Archiv: lange nicht genutzte Tabs räumen sich selbst weg und bleiben durchsuchbar
+   --------------------------------------------------------------------- */
+
+const ARCHIVE_MAX = 500
+
+// Tabs, die nie automatisch archiviert werden: angeheftet, sichtbar, mit Ton, vom Agenten gesteuert, privat, leer
+const archivable = t => !t.pinned && !isVisible(t) && !t.audible && !S.agentTabs.has(t.wcId) && !isPrivateTab(t) &&
+  !isNewtab(t.url) && t !== S.cast.mirror?.tab && /^(https?|file):/.test(t.url)
+
+async function archiveTab (tab, { auto = false } = {}) {
+  if (!tab || isPrivateTab(tab) || isNewtab(tab.url)) return
+  let nav = tab.nav || tab.navCache || null
+  if (tab.wcId) { try { nav = (await A.invoke('tab:history', [tab.wcId]))[tab.wcId] || nav } catch {} }
+  if (!S.tabs.has(tab.id)) return
+  const sp = space(tab.spaceId)
+  S.data.archive.unshift({
+    id: 'ar-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    url: tab.url, title: tab.title, favicon: tab.favicon, spaceId: sp?.id, spaceName: sp?.name || '', archived: Date.now(), auto, nav
+  })
+  if (S.data.archive.length > ARCHIVE_MAX) S.data.archive.length = ARCHIVE_MAX
+  save('archive')
+  closeTab(tab.id)
+  if (S.panel === 'archive') renderPanel()
+}
+
+function restoreArchived (entry, { background = false } = {}) {
+  S.data.archive = S.data.archive.filter(e => e !== entry)
+  save('archive')
+  const spaceId = space(entry.spaceId) && !space(entry.spaceId).private ? entry.spaceId : normalSpaceId()
+  const t = createTab({ url: entry.url, title: entry.title, favicon: entry.favicon, spaceId, nav: entry.nav, background: background || spaceId !== S.activeSpace })
+  if (!background && spaceId !== S.activeSpace) activate(t.id)
+  if (S.panel === 'archive') renderPanel()
+}
+
+// Läuft mit dem Tab-Schlaf alle 30 Sekunden
+function autoArchive () {
+  const hours = +settings().archiveHours
+  if (!hours) return
+  const limit = Date.now() - hours * 3600000
+  const due = [...S.tabs.values()].filter(t => archivable(t) && t.lastActive < limit)
+  for (const t of due) archiveTab(t, { auto: true })
+  if (due.length) {
+    toast(due.length === 1 ? 'Tab archiviert' : T('{n} Tabs archiviert', { n: due.length }),
+      'Länger nicht genutzte Tabs liegen jetzt im Tab-Archiv.', 'tray', { actions: [{ label: 'Anzeigen', run: () => togglePanel('archive') }] })
+  }
+}
+
+function renderArchive (body) {
+  const q = body.querySelector('.panel-search')?.value || ''
+  body.innerHTML = ''
+  const hours = +settings().archiveHours
+  body.insertAdjacentHTML('beforeend', `<p class="panel-note">${hours
+    ? T('Tabs, die du {time} nicht benutzt hast, landen automatisch hier – mit Verlauf. Ein Klick holt sie zurück.', { time: archiveLabel(hours) })
+    : T('Archivierte Tabs bleiben mit ihrem Verlauf erhalten. Automatisches Archivieren lässt sich unter Einstellungen › Leistung einschalten.')}</p>`)
+  const search = document.createElement('input')
+  search.className = 'panel-search'
+  search.placeholder = T('Archiv durchsuchen …')
+  search.value = q
+  search.oninput = () => { renderArchive(body); const s = body.querySelector('.panel-search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length) }
+  body.append(search)
+  const ql = q.toLowerCase()
+  const list = S.data.archive.filter(e => !ql || (e.title + ' ' + e.url).toLowerCase().includes(ql))
+  if (!list.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('tray')}<div>${q ? T('Keine Treffer') : T('Das Archiv ist leer')}</div></div>`); return }
+  let last = ''
+  const today = new Date().toDateString()
+  const yesterday = new Date(Date.now() - 86400000).toDateString()
+  for (const e of list) {
+    const d = new Date(e.archived)
+    const ds = d.toDateString()
+    const label = ds === today ? T('Heute') : ds === yesterday ? T('Gestern') : d.toLocaleDateString(I18N.locale, { weekday: 'long', day: 'numeric', month: 'long' })
+    if (label !== last) { body.insertAdjacentHTML('beforeend', `<div class="group-title">${esc(label)}</div>`); last = label }
+    body.append(rowEl({
+      url: e.url,
+      favicon: e.favicon,
+      title: e.title || e.url,
+      sub: [hostOf(e.url), e.spaceName].filter(Boolean).join(' · '),
+      time: d.toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }),
+      onClick: () => restoreArchived(e),
+      actions: [
+        { icon: 'eye', title: 'Peek', run: () => openPeek(e.url) },
+        { icon: 'trash', title: 'Entfernen', run: () => { S.data.archive = S.data.archive.filter(x => x !== e); save('archive'); renderArchive(body) } }
+      ]
+    }))
+  }
+  const clear = document.createElement('button')
+  clear.className = 'btn ghost block'
+  clear.style.marginTop = '14px'
+  clear.innerHTML = `${icon('trash')} ${T('Archiv leeren')}`
+  clear.onclick = () => confirmDialog('Archiv leeren?', 'Alle archivierten Tabs werden endgültig entfernt.', 'Leeren', () => { S.data.archive = []; save('archive'); renderPanel() })
+  body.append(clear)
+}
+
+const ARCHIVE_OPTIONS = [0, 12, 24, 72, 168, 720]
+function archiveLabel (h) {
+  if (!h) return T('Nie')
+  if (h < 24) return T('{n} Stunden', { n: h })
+  if (h === 24) return T('1 Tag')
+  if (h < 168) return T('{n} Tage', { n: h / 24 })
+  if (h === 168) return T('1 Woche')
+  return T('{n} Tage', { n: h / 24 })
+}
+
+/* ---------------------------------------------------------------------
    Privater Space (Inkognito): eigene flüchtige Sitzung, kein Verlauf, wird nicht gespeichert
    --------------------------------------------------------------------- */
 
@@ -606,7 +709,7 @@ function writeSession ({ refresh = true } = {}) {
     color: sp.color,
     icon: sp.icon,
     activeIndex: Math.max(0, sp.tabIds.indexOf(sp.activeId)),
-    tabs: spaceTabs(sp).map(t => ({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, nav: t.nav || t.navCache || undefined }))
+    tabs: spaceTabs(sp).map(t => ({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, lastActive: t.lastActive, nav: t.nav || t.navCache || undefined }))
   }))
   S.data.activeSpace = sp0?.private ? (space(sp0.returnTo) ? sp0.returnTo : S.data.spaces[0]?.id) : S.activeSpace
   A.send('store:set', 'spaces', S.data.spaces)
@@ -1130,6 +1233,7 @@ function tabMenu (e, tab) {
     { label: tab.muted ? 'Ton einschalten' : 'Stummschalten', icon: tab.muted ? 'volume' : 'mute', run: () => toggleMute(tab) },
     { label: 'Neben aktivem Tab (Split View)', icon: 'split', hint: 'Umschalt+Klick', run: () => splitWith(tab.id), hidden: tab.id === sp.activeId },
     { label: 'Schlafen legen', icon: 'zzz', run: () => sleepTab(tab), hidden: tab.sleeping || isVisible(tab) },
+    { label: 'Archivieren', icon: 'tray', run: () => archiveTab(tab), hidden: isPrivateTab(tab) || isNewtab(tab.url) },
     ...(others.length ? ['-', ...others.map(o => ({ label: T('Nach „{name}“ verschieben', { name: o.name }), icon: 'layers', run: () => moveTabToSpace(tab, o.id) }))] : []),
     { label: 'Alle Tabs als Favoriten speichern …', icon: 'star', run: () => bookmarkAllTabs(sp) },
     '-',
@@ -1905,6 +2009,7 @@ function appMenu () {
     { label: 'Downloads', icon: 'download', hint: 'Strg+J', run: () => togglePanel('downloads') },
     { label: 'Seiten-Notizen', icon: 'note', run: () => togglePanel('notes') },
     { label: 'Zeitkapseln', icon: 'archive', run: () => togglePanel('snapshots') },
+    { label: 'Tab-Archiv', icon: 'tray', run: () => togglePanel('archive') },
     { label: 'Erweiterungen', icon: 'puzzle', run: () => togglePanel('extensions') },
     { label: 'Passwörter', icon: 'key', run: () => openSettings('passwords') },
     '-',
@@ -1927,7 +2032,7 @@ function appMenu () {
    Seitenpanel
    --------------------------------------------------------------------- */
 
-const PANEL_TITLES = { history: 'Verlauf', downloads: 'Downloads', notes: 'Seiten-Notizen', snapshots: 'Zeitkapseln', extensions: 'Erweiterungen' }
+const PANEL_TITLES = { history: 'Verlauf', downloads: 'Downloads', notes: 'Seiten-Notizen', snapshots: 'Zeitkapseln', extensions: 'Erweiterungen', archive: 'Tab-Archiv' }
 
 function togglePanel (name) {
   if (S.panel === name) return closePanel()
@@ -1945,7 +2050,7 @@ function closePanel () {
 
 function renderPanel () {
   const body = $('#panel-body')
-  const fn = { history: renderHistory, downloads: renderDownloads, notes: renderNotes, snapshots: renderSnapshots, extensions: renderExtensions }[S.panel]
+  const fn = { history: renderHistory, downloads: renderDownloads, notes: renderNotes, snapshots: renderSnapshots, extensions: renderExtensions, archive: renderArchive }[S.panel]
   if (fn) fn(body)
 }
 
@@ -2242,6 +2347,8 @@ function commands () {
     { title: 'Neuer Space', icon: 'layers', run: () => editSpaceDialog(null) },
     ...S.spaces.map((sp, i) => ({ title: `Space: ${sp.name}`, user: true, icon: 'layers', hint: `Alt+${i + 1}`, run: () => switchSpace(sp.id) })),
     { title: 'Zeitkapsel dieses Spaces speichern', icon: 'archive', run: () => saveSnapshot() },
+    { title: 'Tab-Archiv anzeigen', icon: 'tray', run: () => togglePanel('archive') },
+    { title: 'Tab archivieren', icon: 'tray', run: () => t && archiveTab(t) },
     { title: 'Verlauf anzeigen', icon: 'history', hint: 'Strg+H', run: () => togglePanel('history') },
     { title: 'Downloads anzeigen', icon: 'download', hint: 'Strg+J', run: () => togglePanel('downloads') },
     { title: 'Seiten-Notizen', icon: 'note', hint: 'Strg+Umschalt+U', run: () => togglePanel('notes') },
@@ -2307,7 +2414,9 @@ function openPalette () {
         if (seen.has(h.url)) continue
         if ((h.title + ' ' + h.url).toLowerCase().includes(q)) { seen.add(h.url); hist.push({ title: h.title || h.url, sub: hostOf(h.url), url: h.url, kind: T('Verlauf'), run: () => createTab({ url: h.url }) }) }
       }
-      items = [...score(commands()).slice(0, 6), ...score(tabs).slice(0, 5), ...score(bms).slice(0, 4), ...hist,
+      const archived = S.data.archive.filter(e => (e.title + ' ' + e.url).toLowerCase().includes(q)).slice(0, 4)
+        .map(e => ({ title: e.title || e.url, sub: hostOf(e.url), url: e.url, favicon: e.favicon, kind: T('Tab-Archiv'), run: () => restoreArchived(e) }))
+      items = [...score(commands()).slice(0, 6), ...score(tabs).slice(0, 5), ...score(bms).slice(0, 4), ...archived, ...hist,
         { title: T('Im Web suchen: „{q}“', { q: input.value.trim() }), icon: 'search', kind: 'Web', run: () => createTab({ url: searchUrl(input.value.trim()) }) }]
     }
     sel = 0
@@ -3880,7 +3989,9 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
     performance: `<h3>${T('Leistung')}</h3>
       ${row(T('Tab-Schlaf'), T('Inaktive Tabs werden nach dieser Zeit schlafen gelegt und geben ihren Arbeitsspeicher frei. Sie wachen beim Anklicken sofort wieder auf. Tabs mit Ton schlafen nie.'),
         `<select class="input" data-s="sleepMinutes" data-num>${[[0, T('Nie')], [5, T('{n} Minuten', { n: 5 })], [15, T('{n} Minuten', { n: 15 })], [30, T('{n} Minuten', { n: 30 })], [60, T('1 Stunde')], [180, T('{n} Stunden', { n: 3 })]].map(([v, l]) => `<option value="${v}" ${+st.sleepMinutes === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
-      ${row(T('Jetzt aufräumen'), T('Alle Hintergrund-Tabs sofort schlafen legen.'), `<button class="btn ghost" id="set-sleep">${icon('zzz')} ${T('Tabs schlafen legen')}</button>`)}`,
+      ${row(T('Jetzt aufräumen'), T('Alle Hintergrund-Tabs sofort schlafen legen.'), `<button class="btn ghost" id="set-sleep">${icon('zzz')} ${T('Tabs schlafen legen')}</button>`)}
+      ${row(T('Tabs automatisch archivieren'), T('Tabs, die du so lange nicht benutzt hast, wandern ins Tab-Archiv – mit Verlauf, durchsuchbar und mit einem Klick zurückgeholt. Angeheftete Tabs und Tabs mit Ton bleiben.'),
+        `<select class="input" data-s="archiveHours" data-num>${ARCHIVE_OPTIONS.map(h => `<option value="${h}" ${+st.archiveHours === h ? 'selected' : ''}>${archiveLabel(h)}</option>`).join('')}</select>`)}`,
     focus: `<h3>${T('Fokus-Modus')}</h3>
       ${row(T('Standarddauer'), '', `<select class="input" data-s="focusMinutes" data-num>${[15, 25, 45, 60, 90].map(v => `<option value="${v}" ${+st.focusMinutes === v ? 'selected' : ''}>${T('{n} Minuten', { n: v })}</option>`).join('')}</select>`)}
       <div class="field" style="margin-top:14px"><label>${T('Gesperrte Websites (eine Domain pro Zeile)')}</label><textarea class="input" rows="9" id="set-blocklist">${esc(st.focusBlocklist.join('\n'))}</textarea><span class="hint">${T('Subdomains werden automatisch mitgesperrt (z. B. m.youtube.com).')}</span></div>
@@ -4735,6 +4846,7 @@ function startSleepTimer () {
       if (t.webview && !t.audible && !isVisible(t) && t.lastActive < limit && t !== S.cast.mirror?.tab && !S.agentTabs.has(t.wcId)) sleepTab(t)
     }
   }, 30000)
+  setInterval(autoArchive, 60000)
 }
 
 async function boot () {
@@ -4764,7 +4876,7 @@ async function boot () {
     S.spaces.push(sp)
     if (settings().restoreSession) {
       for (const t of s.tabs || []) {
-        createTab({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, spaceId: sp.id, sleeping: true, silent: true, nav: t.nav || null })
+        createTab({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, spaceId: sp.id, sleeping: true, silent: true, nav: t.nav || null, lastActive: t.lastActive })
       }
       sp.activeId = sp.tabIds[s.activeIndex] || sp.tabIds[0] || null
     }

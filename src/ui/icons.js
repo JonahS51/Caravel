@@ -77,6 +77,7 @@ window.ICONS = {
   incognito: '<path d="M3 11h18M5.5 11l1.8-5.2a1 1 0 0 1 1.2-.6L12 6l3.5-.8a1 1 0 0 1 1.2.6L18.5 11"/><circle cx="7.5" cy="16" r="2.8"/><circle cx="16.5" cy="16" r="2.8"/><path d="M10.3 16c1.1-.8 2.3-.8 3.4 0"/>',
   importIcon: '<path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
+  tray: '<path d="M3 13.5l2.6-7.7A1.5 1.5 0 0 1 7 4.8h10a1.5 1.5 0 0 1 1.4 1l2.6 7.7"/><path d="M3 13.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4.5h-5.5l-1.5 2.5h-4l-1.5-2.5z"/>',
   usb: '<path d="M12 3v14M9 6l3-3 3 3M7 10v2l5 3M17 9v2l-5 3"/><circle cx="12" cy="19" r="2"/>'
 }
 
