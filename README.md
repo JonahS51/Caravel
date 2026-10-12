@@ -25,6 +25,7 @@ registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installi
 | **KI-Assistent wählbar** – Claude, ChatGPT oder keiner | Einstellungen › KI-Assistent |
 | **KI-Seitenleiste** – claude.ai bzw. chatgpt.com neben jeder Seite (abschaltbar) | `Strg+E`, Knopf „Claude“/„ChatGPT“ |
 | **Seite an die KI übergeben / zusammenfassen**, Auswahl erklären/übersetzen | `Strg+Umschalt+L`, Rechtsklick |
+| **KI-Agent** – Claude erledigt Aufgaben direkt in den Tabs (öffnen, lesen, klicken, ausfüllen) über die Claude-API; eigener API-Schlüssel nötig | `Strg+E` › „Agent“ |
 | **Claude in Chrome** – offizielle Erweiterung über eine Kompatibilitätsschicht | Einstellungen › KI-Assistent (Claude) |
 | **MCP-Server für Claude Code und Codex** – Tabs öffnen, lesen, klicken, ausfüllen, Screenshots | Einstellungen › KI-Assistent |
 | **Werbeblocker** mit uBlock-Origin-Listen inkl. YouTube-Werbung, überspringt Twitch-Werbepausen | Schild in der Adressleiste |
@@ -33,7 +34,14 @@ registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installi
 | **Websites abdunkeln** – Seiten ohne eigenen Dunkelmodus werden im dunklen Design automatisch dunkel | Einstellungen › Darstellung |
 | **Spaces**, **Split View**, **Peek**, **Befehlspalette** | Space-Symbole, `Strg+Umschalt+S`, Umschalt+Klick, `Strg+K` |
 | **Fokus-Modus**, **Seiten-Notizen**, **Zeitkapseln**, **Tab-Schlaf** | `Strg+Umschalt+F`, `Strg+Umschalt+U`, Seitenleiste |
+| **Tab-Archiv** – länger nicht genutzte Tabs wandern samt Verlauf ins Archiv (durchsuchbar, ein Klick holt sie zurück) | Einstellungen › Leistung, ⋮ › Tab-Archiv |
+| **Boosts** – Websites dauerhaft anpassen: Elemente per Pipette ausblenden, eigenes CSS und JavaScript | Rechtsklick › „Element ausblenden …“, Schloss-Symbol |
+| **Volltextsuche im Verlauf** – Seiten auch über ihren Inhalt wiederfinden (Index nur lokal) | Verlauf, `Strg+K` |
+| **Mini-Player** – Videos mit Ton laufen beim Tab-Wechsel als Bild-im-Bild weiter | automatisch, Einstellungen › Darstellung |
 | **Leser-Modus mit Vorlesen**, **Seite als Markdown kopieren** | `F9`, Rechtsklick |
+| **Leseliste** – Artikel samt Bildern offline speichern und später ohne Internet lesen | Symbol im Leser-Modus, Rechtsklick |
+| **Screenshot** – Bereich aufziehen, sichtbarer Bereich oder ganze Seite | `Strg+Umschalt+X` |
+| **Sync über einen Ordner** (OneDrive, Dropbox …) – Favoriten, Notizen, Boosts, Zeitkapseln, Passwörter; mit eigener Passphrase verschlüsselt | Einstellungen › Sync |
 | **Chrome-Erweiterungen** aus dem Chrome Web Store | Web Store › „Hinzufügen“ |
 | **Chromecast wie in Chrome** – Cast-Knöpfe von Webseiten (z. B. YouTube), Tab und Bildschirm spiegeln, Video der Seite, lokale Dateien; alle Geräte mit Status, Lautstärke und Steuerung | Cast-Symbol, ⋮ › Streamen, Rechtsklick |
 | **Automatische Updates** über GitHub-Releases (laden im Hintergrund, installieren beim Beenden) | Einstellungen › Über Caravel |
@@ -94,7 +102,8 @@ Aufbau:
 
 - `src/main/` – Hauptprozess: `main.js`, `adblock.js` (Werbeblocker), `vpn.js`, `crx-compat.js`
   (fehlende Chrome-APIs für Erweiterungen), `mcp-server.js` (Claude Code), `focus.js`, `cast.js`, `store.js`,
-  `updater.js` (Updates), `passwords.js` (Passwort-Manager), `importer.js` (Import aus Chrome/Edge/Brave)
+  `updater.js` (Updates), `passwords.js` (Passwort-Manager), `importer.js` (Import aus Chrome/Edge/Brave),
+  `agent.js` (KI-Agent), `boosts.js`, `fulltext.js` (Volltextsuche), `readinglist.js` (Leseliste), `sync.js` (Sync)
 - `src/preload/` – Brücken: Oberfläche, Tabs, Kompatibilitätsschicht (`crx-early.js`, `crx-late.js`)
 - `src/ui/` – Browser-Oberfläche (Tabs sind `<webview>`-Elemente)
 - `src/pages/` – interne `caravel://`-Seiten
@@ -152,6 +161,7 @@ Caravel as a browser in Windows “Default apps”. The installed program does n
 | **Choice of AI assistant** – Claude, ChatGPT or none | Settings › AI assistant |
 | **AI sidebar** – claude.ai or chatgpt.com next to every page (can be turned off) | `Ctrl+E`, “Claude”/“ChatGPT” button |
 | **Send the page to the AI / summarize it**, explain or translate a selection | `Ctrl+Shift+L`, right-click |
+| **AI agent** – Claude gets things done right in your tabs (open, read, click, fill in) via the Claude API; requires your own API key | `Ctrl+E` › “Agent” |
 | **Claude in Chrome** – the official extension via a compatibility layer | Settings › AI assistant (Claude) |
 | **MCP server for Claude Code and Codex** – open, read, click and fill tabs, take screenshots | Settings › AI assistant |
 | **Ad blocker** with the uBlock Origin lists, including YouTube ads; skips Twitch ad breaks | Shield in the address bar |
@@ -160,7 +170,14 @@ Caravel as a browser in Windows “Default apps”. The installed program does n
 | **Darken websites** – pages without their own dark mode are darkened automatically in the dark theme | Settings › Appearance |
 | **Spaces**, **Split View**, **Peek**, **command palette** | Space icons, `Ctrl+Shift+S`, Shift+click, `Ctrl+K` |
 | **Focus mode**, **page notes**, **time capsules**, **tab sleep** | `Ctrl+Shift+F`, `Ctrl+Shift+U`, sidebar |
+| **Tab archive** – tabs you haven’t used in a while move to the archive with their history (searchable, back with one click) | Settings › Performance, ⋮ › Tab archive |
+| **Boosts** – customize websites permanently: hide elements with the picker, add your own CSS and JavaScript | Right-click › “Hide element …”, lock icon |
+| **Full-text history search** – find pages by their content too (index stays local) | History, `Ctrl+K` |
+| **Mini player** – videos with sound keep playing as picture-in-picture when you switch tabs | automatic, Settings › Appearance |
 | **Reader mode with read-aloud**, **copy page as Markdown** | `F9`, right-click |
+| **Reading list** – save articles including images and read them later without internet | Icon in reader mode, right-click |
+| **Screenshot** – drag an area, visible area or full page | `Ctrl+Shift+X` |
+| **Sync via a folder** (OneDrive, Dropbox …) – favorites, notes, boosts, time capsules, passwords; encrypted with your own passphrase | Settings › Sync |
 | **Chrome extensions** from the Chrome Web Store | Web Store › “Add” |
 | **Chromecast like in Chrome** – cast buttons on websites (e.g. YouTube), mirror a tab or the screen, the page’s video, local files; all devices with status, volume and controls | Cast icon, ⋮ › Cast, right-click |
 | **Automatic updates** via GitHub releases (downloaded in the background, installed on quit) | Settings › About Caravel |
@@ -221,7 +238,8 @@ Structure:
 
 - `src/main/` – main process: `main.js`, `adblock.js` (ad blocker), `vpn.js`, `crx-compat.js`
   (missing Chrome APIs for extensions), `mcp-server.js` (Claude Code), `focus.js`, `cast.js`, `store.js`,
-  `updater.js` (updates), `passwords.js` (password manager), `importer.js` (import from Chrome/Edge/Brave)
+  `updater.js` (updates), `passwords.js` (password manager), `importer.js` (import from Chrome/Edge/Brave),
+  `agent.js` (AI agent), `boosts.js`, `fulltext.js` (full-text search), `readinglist.js` (reading list), `sync.js` (sync)
 - `src/preload/` – bridges: UI, tabs, compatibility layer (`crx-early.js`, `crx-late.js`)
 - `src/ui/` – browser UI (tabs are `<webview>` elements)
 - `src/pages/` – internal `caravel://` pages
