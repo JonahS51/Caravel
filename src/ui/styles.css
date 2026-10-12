@@ -440,6 +440,7 @@ body.html-fullscreen #toolbar, body.html-fullscreen #tabstrip, body.html-fullscr
 .row .r-main { flex: 1; min-width: 0; }
 .row .r-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .r-sub { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.ft-row .r-sub { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
 .row .r-act { display: flex; gap: 2px; opacity: 0; }
 .row:hover .r-act { opacity: 1; }
 .row .r-time { font-size: var(--fs-xs); color: var(--text-3); flex: none; font-variant-numeric: tabular-nums; }

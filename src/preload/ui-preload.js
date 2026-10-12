@@ -17,7 +17,8 @@ const SENDS = new Set([
   'tab:activated', 'tab:back', 'dl:open', 'dl:show', 'dl:control', 'dl:retry', 'perm:respond', 'cast:scan', 'cast:idle', 'cast:control', 'cast:stop',
   'cast:mirror-data', 'cast:mirror-end', 'focus:set',
   'app:default-browser', 'app:relaunch', 'clipboard:write', 'crx:sidepanel-closed',
-  'popup:open', 'update:install', 'pw:offer-reply', 'agent:stop', 'agent:reset'
+  'popup:open', 'update:install', 'pw:offer-reply', 'agent:stop', 'agent:reset',
+  'fulltext:index', 'fulltext:remove', 'fulltext:clear'
 ])
 const INVOKES = new Set([
   'store:all', 'app:lang', 'tab:screenshot', 'suggest', 'ext:list', 'ext:remove', 'ext:load-unpacked', 'ext:newtab-override',
@@ -29,7 +30,7 @@ const INVOKES = new Set([
   'private:clear', 'site:clear-data', 'update:state', 'update:check',
   'pw:list', 'pw:reveal', 'pw:delete', 'pw:update', 'pw:never-remove', 'pw:import', 'pw:export',
   'import:sources', 'import:run', 'agent:status', 'agent:set-key', 'agent:run',
-  'boost:apply', 'boost:pick'
+  'boost:apply', 'boost:pick', 'fulltext:search'
 ])
 
 const sources = {}

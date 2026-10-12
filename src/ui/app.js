@@ -345,6 +345,7 @@ function bindWebview (tab, wv) {
     tab.loading = false
     updateTabEl(tab)
     if (isActive()) { progress('stop'); updateNav() }
+    indexPage(tab)
   })
   const onNav = url => {
     tab.url = url
@@ -364,7 +365,7 @@ function bindWebview (tab, wv) {
     if (tab.ready) applySiteSettings(tab)
     if (isActive()) { updatePopupButton(); updateTranslateButton() }
   })
-  wv.addEventListener('did-navigate-in-page', e => { if (e.isMainFrame) onNav(e.url) })
+  wv.addEventListener('did-navigate-in-page', e => { if (e.isMainFrame) { onNav(e.url); indexPage(tab) } })
   wv.addEventListener('page-title-updated', e => {
     tab.title = e.title
     // Titel im Verlauf nachtragen – nicht nur ganz oben suchen, andere Tabs können dazwischen geladen haben
@@ -725,6 +726,17 @@ function writeSession ({ refresh = true } = {}) {
     }
     if (changed && !saveSession.t) writeSession({ refresh: false })
   }).catch(() => {})
+}
+
+// Volltextsuche: Seiteninhalt im Hauptprozess merken (main/fulltext.js), nie im privaten Space
+function indexPage (tab) {
+  if (tab.wcId && !tab.loading && !isPrivateTab(tab) && /^https?:/.test(tab.url) && settings().fullTextIndex !== false) A.send('fulltext:index', tab.wcId, tab.url)
+}
+
+// Treffer im Seiteninhalt für eine Suchanfrage (ab drei Zeichen)
+async function searchFullText (q, limit = 20) {
+  if (q.trim().length < 3 || settings().fullTextIndex === false) return []
+  try { return await A.invoke('fulltext:search', q, limit) } catch { return [] }
 }
 
 function recordHistory (tab) {
@@ -2093,7 +2105,27 @@ function renderHistory (body) {
   body.append(search)
   const ql = q.toLowerCase()
   const list = S.data.history.filter(h => !ql || (h.title + ' ' + h.url).toLowerCase().includes(ql)).slice(0, 300)
-  if (!list.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('history')}<div>${q ? T('Keine Treffer') : T('Noch kein Verlauf')}</div></div>`); return }
+  // Treffer im Seiteninhalt folgen asynchron (nur, solange dieselbe Suche noch angezeigt wird)
+  if (q.trim().length >= 3) {
+    const shown = new Set(list.map(h => h.url))
+    searchFullText(q).then(hits => {
+      hits = hits.filter(h => !shown.has(h.url))
+      if (!hits.length || body.querySelector('.panel-search')?.value !== q || S.panel !== 'history') return
+      body.querySelector('.empty')?.remove()
+      const anchor = body.querySelector('.history-clear')
+      const head = document.createElement('div')
+      head.className = 'group-title'
+      head.textContent = T('Im Seiteninhalt gefunden')
+      body.insertBefore(head, anchor)
+      for (const h of hits) {
+        const row = rowEl({ url: h.url, title: h.title || h.url, sub: h.snippet || hostOf(h.url), time: timeAgo(h.at), onClick: () => createTab({ url: h.url }), actions: [{ icon: 'eye', title: 'Peek', run: () => openPeek(h.url) }] })
+        row.classList.add('ft-row')
+        row.title = h.snippet
+        body.insertBefore(row, anchor)
+      }
+    })
+  }
+  if (!list.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('history')}<div>${q ? T('Keine Treffer') : T('Noch kein Verlauf')}</div></div><span class="history-clear"></span>`); return }
   const today = new Date().toDateString()
   const yesterday = new Date(Date.now() - 86400000).toDateString()
   let last = ''
@@ -2110,15 +2142,15 @@ function renderHistory (body) {
       onClick: () => createTab({ url: h.url }),
       actions: [
         { icon: 'eye', title: 'Peek', run: () => openPeek(h.url) },
-        { icon: 'trash', title: 'Entfernen', run: () => { S.data.history = S.data.history.filter(x => x !== h); save('history'); renderHistory(body) } }
+        { icon: 'trash', title: 'Entfernen', run: () => { S.data.history = S.data.history.filter(x => x !== h); save('history'); if (!S.data.history.some(x => x.url === h.url)) A.send('fulltext:remove', h.url); renderHistory(body) } }
       ]
     }))
   }
   const clear = document.createElement('button')
-  clear.className = 'btn ghost block'
+  clear.className = 'btn ghost block history-clear'
   clear.style.marginTop = '14px'
   clear.innerHTML = `${icon('trash')} ${T('Gesamten Verlauf löschen')}`
-  clear.onclick = () => confirmDialog('Verlauf löschen?', 'Der gesamte Browserverlauf wird unwiderruflich entfernt.', 'Löschen', () => { S.data.history = []; save('history'); renderPanel() })
+  clear.onclick = () => confirmDialog('Verlauf löschen?', 'Der gesamte Browserverlauf wird unwiderruflich entfernt.', 'Löschen', () => { S.data.history = []; save('history'); A.send('fulltext:clear'); renderPanel() })
   body.append(clear)
 }
 
@@ -2421,6 +2453,16 @@ function openPalette () {
         .map(e => ({ title: e.title || e.url, sub: hostOf(e.url), url: e.url, favicon: e.favicon, kind: T('Tab-Archiv'), run: () => restoreArchived(e) }))
       items = [...score(commands()).slice(0, 6), ...score(tabs).slice(0, 5), ...score(bms).slice(0, 4), ...archived, ...hist,
         { title: T('Im Web suchen: „{q}“', { q: input.value.trim() }), icon: 'search', kind: 'Web', run: () => createTab({ url: searchUrl(input.value.trim()) }) }]
+      // Seiteninhalte aus dem Verlauf kommen asynchron dazu (vor die Websuche)
+      const asked = input.value
+      searchFullText(asked, 5).then(hits => {
+        if (input.value !== asked || $('#palette').hidden) return
+        const known = new Set(items.map(i => i.url).filter(Boolean))
+        const extra = hits.filter(h => !known.has(h.url)).map(h => ({ title: h.title || h.url, sub: h.snippet || hostOf(h.url), url: h.url, kind: T('Im Seiteninhalt gefunden'), run: () => createTab({ url: h.url }) }))
+        if (!extra.length) return
+        items.splice(items.length - 1, 0, ...extra)
+        render()
+      })
     }
     sel = 0
     render()
@@ -4074,6 +4116,8 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
       </div>
       <div class="flex"><button class="btn" id="vpn-open">${icon('vpn')} ${T('VPN-Menü öffnen')}</button></div>`,
     privacy: `<h3>${T('Privatsphäre & Sicherheit')}</h3>
+      ${row(T('Seiteninhalte für die Verlaufssuche merken'), T('Caravel speichert den Text besuchter Seiten lokal auf diesem PC, damit Verlauf und Befehlspalette (Strg+K) Seiten auch über ihren Inhalt finden. Nie im privaten Space. Wird mit dem Verlauf gelöscht.'),
+        `<div class="flex"><button class="btn ghost sm" id="set-ftclear">${T('Index löschen')}</button>${toggle('fullTextIndex', st.fullTextIndex !== false)}</div>`)}
       ${row(T('Browserdaten löschen'), T('Entfernt die gewählten Daten aller Websites.'), `<div class="flex"><button class="btn ghost sm" data-clear="cache">${T('Cache')}</button><button class="btn ghost sm" data-clear="cookies">${T('Cookies')}</button><button class="btn ghost sm" data-clear="storage">${T('Website-Daten')}</button><button class="btn ghost sm" data-clear="history">${T('Verlauf')}</button></div>`)}
       <div class="set-row" style="display:block"><div class="t">${T('Gespeicherte Website-Berechtigungen')}</div>
         ${perms.length ? perms.map(([origin, p]) => `<div class="flex" style="margin-top:8px"><span class="grow" style="word-break:break-all">${esc(origin)}<br><span class="muted" style="font-size:12px">${Object.entries(p).map(([k, v]) => `${esc(T(PERM_NAMES[k] || k))}: ${v ? T('erlaubt') : T('blockiert')}`).join(' · ')}</span></span><button class="btn ghost sm" data-perm="${esc(origin)}">${T('Zurücksetzen')}</button></div>`).join('') : `<div class="d" style="margin-top:6px">${T('Keine gespeicherten Berechtigungen.')}</div>`}
@@ -4153,11 +4197,13 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
   card.querySelectorAll('[data-clear]').forEach(b => {
     b.onclick = async () => {
       const what = b.dataset.clear
-      if (what === 'history') { S.data.history = []; save('history') } else await A.invoke('data:clear', [what])
+      if (what === 'history') { S.data.history = []; save('history'); A.send('fulltext:clear') } else await A.invoke('data:clear', [what])
       toast('Gelöscht', { cache: 'Cache geleert', cookies: 'Alle Cookies entfernt', storage: 'Website-Daten entfernt', history: 'Verlauf gelöscht' }[what], 'trash')
     }
   })
   card.querySelectorAll('[data-boost]').forEach(b => { b.onclick = () => openBoostDialog(b.dataset.boost) })
+  const ftClear = $('#set-ftclear')
+  if (ftClear) ftClear.onclick = () => { A.send('fulltext:clear'); toast('Gelöscht', 'Gespeicherte Seiteninhalte entfernt.', 'trash') }
   card.querySelectorAll('[data-perm]').forEach(b => {
     b.onclick = () => { delete S.data.permissions[b.dataset.perm]; save('permissions'); openSettings('privacy') }
   })

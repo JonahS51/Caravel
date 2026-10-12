@@ -20,6 +20,7 @@ const DEFAULTS = {
       'tiktok.com', 'facebook.com', 'netflix.com', 'twitch.tv'
     ],
     restoreSession: true,
+    fullTextIndex: true, // Seiteninhalte für die Verlaufssuche lokal merken
     userName: '',
     sidebarCollapsed: false,
     // KI-Assistent: 'claude' | 'chatgpt' | 'none' (claudeSidebar = Seitenleiste des gewählten Assistenten)

@@ -902,6 +902,13 @@
     'Unbekannte Quelle': 'Unknown source',
     'Der Verlauf ist gesperrt – bitte den Browser schließen und erneut versuchen.': 'The history is locked – please close the browser and try again.',
 
+    // ---- Volltextsuche ---------------------------------------------------------
+    'Im Seiteninhalt gefunden': 'Found in page content',
+    'Seiteninhalte für die Verlaufssuche merken': 'Remember page content for history search',
+    'Caravel speichert den Text besuchter Seiten lokal auf diesem PC, damit Verlauf und Befehlspalette (Strg+K) Seiten auch über ihren Inhalt finden. Nie im privaten Space. Wird mit dem Verlauf gelöscht.': 'Caravel stores the text of visited pages locally on this PC so that history and the command palette (Ctrl+K) can find pages by their content too. Never in the private space. Cleared together with the history.',
+    'Index löschen': 'Clear index',
+    'Gespeicherte Seiteninhalte entfernt.': 'Stored page content removed.',
+
     // ---- Boosts --------------------------------------------------------------
     'Element ausblenden …': 'Hide element …',
     'Element ausblenden': 'Hide element',

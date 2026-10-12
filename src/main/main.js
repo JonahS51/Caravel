@@ -20,6 +20,7 @@ const { CrxCompat } = require('./crx-compat')
 const { McpServer } = require('./mcp-server')
 const { BrowserAgent, MODEL: AGENT_MODEL } = require('./agent')
 const { Boosts } = require('./boosts')
+const { FullText } = require('./fulltext')
 const { Updater } = require('./updater')
 const { PasswordStore } = require('./passwords')
 const importer = require('./importer')
@@ -64,6 +65,7 @@ let mcp = null
 let mcpError = null
 let agent = null
 let boosts = null
+let fulltext = null
 let tabsSession = null
 let privateSession = null
 let updater = null
@@ -1194,6 +1196,18 @@ function registerIpc () {
     return boosts.pick(wc, t('Element anklicken, das ausgeblendet werden soll · Esc bricht ab'))
   })
 
+  // Volltextsuche im Verlauf (fulltext.js) – nie im privaten Space
+  ipcMain.on('fulltext:index', (_e, wcId, url) => {
+    if (store.get('settings').fullTextIndex === false) return
+    const wc = webContents.fromId(wcId)
+    if (!wc || wc.isDestroyed() || isPrivate(wc) || wc.session !== tabsSession) return
+    // kurz warten, bis nachgeladene Inhalte (Single-Page-Apps) stehen
+    setTimeout(() => fulltext.index(wc, url), 1500)
+  })
+  ipcMain.handle('fulltext:search', (_e, query, limit) => fulltext.search(String(query || ''), Math.min(+limit || 20, 100)))
+  ipcMain.on('fulltext:remove', (_e, url) => fulltext.remove(String(url)))
+  ipcMain.on('fulltext:clear', () => fulltext.clear())
+
   // KI-Agent im Browser (Claude-API, siehe agent.js)
   ipcMain.handle('agent:status', () => ({ hasKey: agent.hasKey(), model: AGENT_MODEL, running: !!agent.running, turns: agent.messages.length }))
   ipcMain.handle('agent:set-key', (_e, key) => agent.setKey(key))
@@ -1572,6 +1586,7 @@ app.whenReady().then(async () => {
   passwords = new PasswordStore(app.getPath('userData'))
 
   boosts = new Boosts(() => store.get('boosts'))
+  fulltext = new FullText(app.getPath('userData'))
   focusGuard = new FocusGuard(url => `caravel://blocked/?url=${encodeURIComponent(url)}`)
   cast = new CastManager(send)
   cast.discovery.start() // wie Chrome: Geräte im Hintergrund suchen, damit Cast-Knöpfe sofort erscheinen
@@ -1631,6 +1646,7 @@ app.on('before-quit', () => {
     adblock.blockedTotal = 0
   }
   store?.flush()
+  fulltext?.flush()
   cast?.dispose()
   vpn?.dispose()
   mcp?.stop()
