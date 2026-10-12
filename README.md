@@ -20,7 +20,7 @@ registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installi
 
 | Funktion | Bedienung |
 |---|---|
-| **Design „Stille“** – ruhiger Rahmen in Graphit oder Papier, Haarlinien statt Flächen, die Space-Farbe nur dort, wo gerade Aufmerksamkeit ist; Adresszeile mit hervorgehobener Domain, editoriale Startseite | Einstellungen › Darstellung |
+| **Aufgeräumte Oberfläche** wie in Chrome, Firefox und Safari – Tabs oben mit Space-Umschalter, schlanke Werkzeugleiste, **Seiten-Menü** in der Adresszeile (Verbindung, Werbeblocker, VPN, Leseansicht, Übersetzen, Boosts, Zoom, Website-Rechte) und **Bibliothek** (Verlauf, Downloads, Leseliste, Tab-Archiv, Notizen, Zeitkapseln, Erweiterungen); hell und dunkel; Tab-Leiste wahlweise links oder unter der Adressleiste | Einstellungen › Darstellung |
 | **Deutsch und Englisch** – automatisch nach Windows-Sprache oder fest gewählt | Einstellungen › Allgemein › Sprache |
 | **KI-Assistent wählbar** – Claude, ChatGPT oder keiner | Einstellungen › KI-Assistent |
 | **KI-Seitenleiste** – claude.ai bzw. chatgpt.com neben jeder Seite (abschaltbar) | `Strg+E`, Knopf „Claude“/„ChatGPT“ |
@@ -156,7 +156,7 @@ Caravel as a browser in Windows “Default apps”. The installed program does n
 
 | Feature | How to use |
 |---|---|
-| **“Stille” design** – a calm frame in graphite or paper, hairlines instead of panels, each space’s color only where your attention is; address bar with the domain highlighted, editorial start page | Settings › Appearance |
+| **Clean interface** like Chrome, Firefox and Safari – tabs on top with a space switcher, a slim toolbar, a **page menu** in the address bar (connection, ad blocker, VPN, reader view, translate, boosts, zoom, site permissions) and a **library** (history, downloads, reading list, tab archive, notes, time capsules, extensions); light and dark; tab bar optionally on the left or below the address bar | Settings › Appearance |
 | **German and English** – automatically based on the Windows language, or set manually | Settings › General › Language |
 | **Choice of AI assistant** – Claude, ChatGPT or none | Settings › AI assistant |
 | **AI sidebar** – claude.ai or chatgpt.com next to every page (can be turned off) | `Ctrl+E`, “Claude”/“ChatGPT” button |

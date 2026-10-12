@@ -42,7 +42,6 @@
 
       <div class="sb-foot">
         <div id="spaces" class="spaces"></div>
-        <div class="sb-tools" id="sb-tools"></div>
       </div>
     </aside>
 
@@ -66,8 +65,8 @@
             <div class="omni-actions">
               <button class="icon-btn sm" id="btn-popup" title="Pop-up blockiert" hidden></button>
               <button class="icon-btn sm" id="btn-translate" title="Seite übersetzen" hidden></button>
-              <button class="chip-btn" id="btn-adblock" title="Werbeblocker"></button>
-              <button class="icon-btn sm" id="btn-reader" title="Leser-Modus (F9)"></button>
+              <button class="chip-btn" id="btn-adblock" title="Werbeblocker" hidden></button>
+              <button class="icon-btn sm" id="btn-reader" title="Leser-Modus (F9)" hidden></button>
               <button class="icon-btn sm" id="btn-star" title="Lesezeichen (Strg+D)"></button>
             </div>
           </div>
@@ -75,14 +74,16 @@
         </div>
 
         <div class="actions no-drag">
+          <!-- Nur sichtbar, solange etwas aktiv ist (Fokus-Timer, VPN, Split View, Streamen) -->
           <div id="focus-hud" class="focus-hud" hidden></div>
-          <button class="vpn-pill" id="btn-vpn" title="VPN"></button>
-          <button class="icon-btn" id="btn-split" title="Split View (Strg+Umschalt+S)"></button>
-          <button class="icon-btn" id="btn-cast" title="Streamen"></button>
-          <button class="icon-btn" id="btn-focus" title="Fokus-Modus (Strg+Umschalt+F)"></button>
+          <button class="vpn-pill" id="btn-vpn" title="VPN" hidden></button>
+          <button class="icon-btn" id="btn-split" title="Split View beenden (Strg+Umschalt+S)" hidden></button>
+          <button class="icon-btn" id="btn-cast" title="Streamen" hidden></button>
+          <button class="icon-btn" id="btn-focus" title="Fokus-Modus (Strg+Umschalt+F)" hidden></button>
           <browser-action-list id="ext-actions" partition="persist:caravel" alignment="bottom left"></browser-action-list>
-          <button class="claude-btn" id="btn-claude" title="Claude-Seitenleiste (Strg+E)"></button>
-          <button class="icon-btn" id="btn-menu" title="Menü"></button>
+          <button class="icon-btn" id="btn-library" title="Bibliothek: Verlauf, Downloads, Leseliste …"></button>
+          <button class="icon-btn" id="btn-claude" title="Claude-Seitenleiste (Strg+E)"></button>
+          <button class="icon-btn" id="btn-menu" title="Einstellungen und mehr"></button>
         </div>
         <div class="wco-spacer"></div>
       </header>
@@ -128,14 +129,6 @@
             <button class="icon-btn sm" id="dock-close" title="Schließen (Strg+E)"></button>
           </div>
           <div class="dock-body" id="dock-body"></div>
-        </aside>
-
-        <aside id="panel" class="panel" hidden>
-          <div class="panel-head">
-            <h2 id="panel-title"></h2>
-            <button class="icon-btn sm" id="panel-close" title="Schließen"></button>
-          </div>
-          <div id="panel-body" class="panel-body scroll"></div>
         </aside>
       </div>
     </main>

@@ -91,7 +91,7 @@ function faviconEl (favicon, url, size = 16) {
   if (internal) {
     // Interne Seiten: neutrales Symbol (die Farbe kommt aus dem CSS des jeweiligen Kontexts)
     const s = document.createElement('span')
-    s.innerHTML = icon('sparkles')
+    s.innerHTML = icon('home')
     s.style.display = 'grid'
     s.firstChild.style.width = s.firstChild.style.height = size + 'px'
     return s
@@ -807,8 +807,9 @@ function switchSpace (id, { tabId, initial } = {}) {
 
 function applyAccent () {
   const sp = curSpace()
-  const color = sp?.color || '#f2545b'
-  document.documentElement.style.setProperty('--accent', color)
+  const color = sp?.color || '#2b6cd4'
+  // Die Space-Farbe färbt nur den Punkt am Space-Umschalter – Akzent der Oberfläche bleibt neutral blau
+  document.documentElement.style.setProperty('--space', color)
   document.body.classList.toggle('private-space', !!sp?.private)
   $('#space-name').textContent = sp?.name || ''
   A.send('ui:accent', color)
@@ -910,7 +911,7 @@ function layout () {
     const t = activeTab()
     if (t?.webview) t.webview.classList.add('visible')
   }
-  $('#btn-split').classList.toggle('on', !!sp.split)
+  $('#btn-split').hidden = !sp.split // nur als „Split View beenden“ sichtbar
 }
 
 function toggleSplit () {
@@ -1316,34 +1317,37 @@ function renderSpaces () {
   add.title = T('Neuer Space')
   add.onclick = () => editSpaceDialog(null)
   box.append(add)
+  renderSpaceSwitcher()
 }
 
-function renderSbTools () {
-  const tools = [
-    ['history', 'history', 'Verlauf (Strg+H)'],
-    ['downloads', 'download', 'Downloads (Strg+J)'],
-    ['notes', 'note', 'Seiten-Notizen (Strg+Umschalt+U)'],
-    ['snapshots', 'archive', 'Zeitkapseln'],
-    ['extensions', 'puzzle', 'Erweiterungen (Strg+Umschalt+E)']
-  ]
-  const box = $('#sb-tools')
-  box.innerHTML = ''
-  for (const [panel, ic, title] of tools) {
-    const b = document.createElement('button')
-    b.className = 'icon-btn' + (S.panel === panel ? ' on' : '')
-    b.dataset.panel = panel
-    b.title = T(title)
-    b.innerHTML = icon(ic)
-    b.onclick = () => togglePanel(panel)
-    box.append(b)
+// Waagrechte Tab-Leiste: Space-Umschalter links (Name mit Farbpunkt, Menü mit allen Spaces)
+function renderSpaceSwitcher () {
+  const box = $('#ts-spaces')
+  const sp = curSpace()
+  if (!box || !sp) return
+  box.innerHTML = `<button class="space-switch" id="space-switch" title="${T('Space wechseln')}">${sp.private ? icon('incognito') : `<span class="sw-dot" style="background:${esc(sp.color)}"></span>`}<span class="sw-name">${esc(sp.name)}</span>${icon('chevronDown')}</button>`
+  const btn = $('#space-switch')
+  btn.onclick = () => {
+    const r = btn.getBoundingClientRect()
+    showMenu(r.left, r.bottom + 4, [
+      ...S.spaces.map((s, i) => ({
+        label: s.name, raw: true, dot: s.private ? null : s.color, icon: s.private ? 'incognito' : null,
+        hint: s.id === S.activeSpace ? '✓' : (s.private ? 'Strg+Umschalt+N' : `Alt+${i + 1}`),
+        run: () => switchSpace(s.id)
+      })),
+      '-',
+      { label: 'Neuer Space …', icon: 'plus', run: () => editSpaceDialog(null) },
+      { label: 'Privater Space', icon: 'incognito', hint: 'Strg+Umschalt+N', run: () => openPrivate(), hidden: !!privateSpace() },
+      '-',
+      ...(sp.private
+        ? [{ label: 'Privaten Space schließen', icon: 'x', danger: true, run: closePrivateSpace }]
+        : [
+            { label: 'Space bearbeiten …', icon: 'settings', run: () => editSpaceDialog(sp) },
+            { label: 'Zeitkapsel speichern', icon: 'archive', run: () => saveSnapshot(sp) },
+            { label: 'Space löschen …', icon: 'trash', danger: true, hidden: S.spaces.filter(s => !s.private).length < 2, run: () => confirmDialog(T('„{name}“ löschen?', { name: sp.name }), 'Alle Tabs dieses Spaces werden geschlossen. Tipp: Speichere vorher eine Zeitkapsel.', 'Löschen', () => deleteSpace(sp)) }
+          ])
+    ])
   }
-  const s = document.createElement('button')
-  s.className = 'icon-btn'
-  s.title = T('Einstellungen (Strg+,)')
-  s.innerHTML = icon('settings')
-  s.onclick = () => openSettings()
-  box.append(s)
-  updateDownloadDot()
 }
 
 function toggleSidebar () {
@@ -1359,7 +1363,7 @@ function toggleSidebar () {
    --------------------------------------------------------------------- */
 
 const TAB_LAYOUTS = ['sidebar', 'chrome', 'safari']
-const tabLayout = () => TAB_LAYOUTS.includes(settings().tabLayout) ? settings().tabLayout : 'sidebar'
+const tabLayout = () => TAB_LAYOUTS.includes(settings().tabLayout) ? settings().tabLayout : 'chrome'
 const isHorizontalTabs = () => tabLayout() !== 'sidebar'
 
 function applyTabLayout () {
@@ -1382,9 +1386,8 @@ function applyTabLayout () {
   const spaces = $('#spaces')
   if (horiz) {
     $('#ts-tabs').append(list, newtab)
-    $('#ts-spaces').append(spaces)
+    renderSpaceSwitcher()
     favbar.prepend(favs)
-    favbar.append($('#sb-tools')) // Verlauf, Downloads, Notizen … rechts in der Favoritenleiste
     // Chrome: Tabs ganz oben, Safari: Tabs unter Adress- und Favoritenleiste
     if (mode === 'chrome') main.prepend(strip)
     else main.insertBefore(strip, $('.content-row'))
@@ -1396,7 +1399,6 @@ function applyTabLayout () {
     sidebar.insertBefore(newtab, foot)
     sidebar.insertBefore(list, foot)
     foot.prepend(spaces)
-    foot.append($('#sb-tools'))
   }
   strip.hidden = !horiz
   favbar.hidden = !horiz || settings().showFavbar === false
@@ -1441,10 +1443,8 @@ function updateNav () {
   const bm = t && !!bmByUrl(t.url)
   $('#btn-star').classList.toggle('on', !!bm)
   $('#btn-star').innerHTML = icon('star')
-  $('#btn-reader').classList.toggle('on', !!S.reader)
-  $('#btn-reader').hidden = !t || isNewtab(t.url) || !/^https?:/.test(t.url)
   $('#btn-star').hidden = !t || isNewtab(t.url)
-  $('#btn-adblock').hidden = !t || !/^https?:/.test(t.url)
+  // Werbeblocker und Leseansicht stehen im Seiten-Menü (Knopf vorn in der Adresszeile)
   updatePopupButton()
   updateTranslateButton()
 }
@@ -1472,10 +1472,10 @@ function updateOmnibox () {
   let host = ''
   try { host = new URL(url).host } catch {}
   site.classList.toggle('clickable', /^https?:/.test(url))
-  site.title = /^https?:/.test(url) ? T('Website-Informationen und -Einstellungen') : ''
+  site.title = /^https?:/.test(url) ? T('Seiten-Menü: Verbindung, Werbeblocker, Website-Einstellungen') : ''
   if (isNewtab(url) || url.startsWith('caravel:')) site.innerHTML = icon('search')
   else if (url.startsWith('https:') && S.certOverrides.has(host)) site.innerHTML = `${icon('warning')}<span class="host-pill danger">${T('Nicht sicher')}</span>`
-  else if (url.startsWith('https:')) { site.classList.add('secure'); site.innerHTML = icon('lock') }
+  else if (url.startsWith('https:')) { site.classList.add('secure'); site.innerHTML = icon('tune') }
   else if (url.startsWith('http:')) site.innerHTML = `${icon('warning')}<span class="host-pill">${T('Nicht sicher')}</span>`
   else if (url.startsWith('file:')) site.innerHTML = icon('file')
   else if (url.startsWith('chrome-extension:')) site.innerHTML = icon('puzzle')
@@ -1505,11 +1505,11 @@ function updateAmbient () {
   // Getönt wird nur mit der Markenfarbe der Website (theme-color) – und nur ganz leicht
   const amb = settings().ambient && !priv && t?.themeColor && !isNewtab(t.url) && !t.url.startsWith('caravel:') ? t.themeColor : null
   const dark = isDark()
-  const base = toRgb(dark ? '#161618' : '#f2f2f1')
+  const base = toRgb(dark ? '#1e1e21' : '#e3e3e8') // = --frame in styles.css
   // Privater Space: Rahmen immer dunkel-violett („Nacht“), damit man ihn nie mit einem normalen verwechselt
   const toolbar = priv ? '#1e1a29' : toHex(amb ? mixRgb(base, toRgb(amb), dark ? 0.07 : 0.05) : base)
   const root = document.documentElement.style
-  root.setProperty('--ambient', amb ? toHex(toRgb(amb)) : (curSpace()?.color || '#f2545b'))
+  root.setProperty('--ambient', amb ? toHex(toRgb(amb)) : (curSpace()?.color || '#2b6cd4'))
   root.setProperty('--toolbar', toolbar)
   // Palette, Modal und Peek legen einen Schleier über das Fenster – die Windows-Fensterknöpfe dunkeln mit ab
   const veiled = !$('#modal').hidden || !$('#palette').hidden || !!S.peek
@@ -1938,8 +1938,9 @@ function showMenu (x, y, items) {
     if (it.custom) { m.append(it.custom); continue }
     const el = document.createElement('div')
     el.className = 'm-item' + (it.danger ? ' danger' : '')
-    // Menütexte zentral übersetzen (Favoriten im Menü sind Nutzerinhalt)
-    el.innerHTML = `${it.fav ? '' : icon(it.icon || 'dots')}<span class="m-label">${esc(it.fav ? it.label : T(it.label))}</span>${it.hint ? `<span class="m-hint">${esc(T(it.hint))}</span>` : ''}`
+    // Menütexte zentral übersetzen (Favoriten und Space-Namen im Menü sind Nutzerinhalt: raw)
+    const lead = it.fav ? '' : it.dot ? `<span class="m-dot" style="background:${esc(it.dot)}"></span>` : icon(it.icon || 'dots')
+    el.innerHTML = `${lead}<span class="m-label">${esc(it.fav || it.raw ? it.label : T(it.label))}</span>${it.hint ? `<span class="m-hint">${esc(T(it.hint))}</span>` : ''}`
     if (it.fav) el.prepend(faviconEl(it.fav.favicon, it.fav.url, 16)) // Favoriten im Menü mit Website-Symbol
     el.onclick = () => { hideMenu(); it.run() }
     m.append(el)
@@ -1952,9 +1953,17 @@ function showMenu (x, y, items) {
 function hideMenu () { $('#menu').hidden = true }
 
 // width: feste Breite in px – wird vor dem Ausrichten gesetzt (sonst erbte das Popover die Breite des zuletzt geöffneten)
+// Popover, deren Inhalt eine Menüliste ist (ohne Innenabstand, Zeilen bis an den Rand)
+const MENU_POPOVERS = new Set(['library', 'site'])
+
 function showPopover (anchor, html, name, width = null) {
   const p = $('#popover')
-  if (S.popover === 'cast' && name !== 'cast') castDialogClosed()
+  const prev = S.popover
+  if (prev === 'cast' && name !== 'cast') castDialogClosed()
+  if (prev === 'library' && name !== 'library') { S.panel = null; $('#btn-library').classList.remove('on') }
+  // Knopf ausgeblendet (VPN, Streamen, Fokus erscheinen nur bei Bedarf): am Menü-Knopf öffnen
+  if (!anchor || !anchor.getClientRects().length) anchor = $('#btn-menu')
+  p.className = 'popover' + (MENU_POPOVERS.has(name) ? ' menu-pop' : '')
   p.style.width = width ? width + 'px' : ''
   p.innerHTML = html
   p.hidden = false
@@ -1970,6 +1979,7 @@ function hidePopover () {
   $('#popover').hidden = true
   S.popover = null
   if (prev === 'cast') castDialogClosed()
+  if (prev === 'library') { S.panel = null; $('#btn-library').classList.remove('on') }
 }
 
 function closeFloating () {
@@ -2034,30 +2044,32 @@ function appMenu () {
     $('.zoom-val', zoomRow).textContent = Math.round(Math.pow(1.2, activeTab()?.zoom || 0) * 100) + ' %'
   })
   const r = $('#btn-menu').getBoundingClientRect()
-  showMenu(r.right - 260, r.bottom + 6, [
+  const vpnOn = S.vpn?.status === 'on' || S.vpn?.status === 'connecting'
+  showMenu(r.right - 280, r.bottom + 6, [
     { label: 'Neuer Tab', icon: 'plus', hint: 'Strg+T', run: () => createTab() },
+    { label: 'Neuer Space …', icon: 'layers', run: () => editSpaceDialog(null) },
     { label: 'Privater Space', icon: 'incognito', hint: 'Strg+Umschalt+N', run: () => openPrivate() },
-    { label: 'Neuer Space', icon: 'layers', run: () => editSpaceDialog(null) },
-    { label: 'Befehlspalette', icon: 'command', hint: 'Strg+K', run: openPalette },
+    '-',
+    { label: 'Verlauf', icon: 'history', hint: 'Strg+H', run: () => openLibrary('history') },
+    { label: 'Downloads', icon: 'download', hint: 'Strg+J', run: () => openLibrary('downloads') },
+    { label: 'Bibliothek', icon: 'library', run: () => openLibrary(null) },
+    { label: 'Passwörter', icon: 'key', run: () => openSettings('passwords') },
     '-',
     { custom: zoomRow },
     '-',
-    { label: 'Verlauf', icon: 'history', hint: 'Strg+H', run: () => togglePanel('history') },
-    { label: 'Downloads', icon: 'download', hint: 'Strg+J', run: () => togglePanel('downloads') },
-    { label: 'Seiten-Notizen', icon: 'note', run: () => togglePanel('notes') },
-    { label: 'Zeitkapseln', icon: 'archive', run: () => togglePanel('snapshots') },
-    { label: 'Tab-Archiv', icon: 'tray', run: () => togglePanel('archive') },
-    { label: 'Leseliste', icon: 'readlater', run: () => togglePanel('reading') },
-    { label: 'Erweiterungen', icon: 'puzzle', run: () => togglePanel('extensions') },
-    { label: 'Passwörter', icon: 'key', run: () => openSettings('passwords') },
-    '-',
+    { label: 'Drucken …', icon: 'print', hint: 'Strg+P', run: () => activeTab()?.ready && activeTab().webview.print() },
+    { label: 'Auf Seite suchen …', icon: 'search', hint: 'Strg+F', run: openFind },
+    { label: 'Übersetzen …', icon: 'translate', run: openTranslatePopover },
     { label: 'Screenshot', icon: 'camera', hint: 'Strg+Umschalt+X', run: screenshot },
     { label: 'Streamen …', icon: 'cast', run: () => openCast() },
-    { label: 'Auf Seite suchen', icon: 'search', hint: 'Strg+F', run: openFind },
-    { label: 'Übersetzen …', icon: 'translate', run: openTranslatePopover },
+    '-',
+    { label: curSpace()?.split ? 'Split View beenden' : 'Split View', icon: 'split', hint: 'Strg+Umschalt+S', run: toggleSplit },
+    { label: S.focus.active ? 'Fokus-Modus …' : 'Fokus-Modus starten …', icon: 'focus', hint: 'Strg+Umschalt+F', run: openFocusPopover },
+    { label: vpnOn ? T('VPN: {label}', { label: S.vpn.label || '' }) : 'VPN …', raw: vpnOn, icon: 'vpn', run: openVpnPopover },
+    { label: 'Befehlspalette', icon: 'command', hint: 'Strg+K', run: openPalette },
+    '-',
     { label: 'Speichern unter …', icon: 'download', hint: 'Strg+S', run: savePage },
     { label: 'Datei öffnen …', icon: 'file', hint: 'Strg+O', run: openFile },
-    { label: 'Drucken …', icon: 'print', hint: 'Strg+P', run: () => activeTab()?.ready && activeTab().webview.print() },
     { label: 'Entwicklertools', icon: 'command', hint: 'F12', run: devtools },
     '-',
     { label: 'Einstellungen', icon: 'settings', hint: 'Strg+,', run: () => openSettings() },
@@ -2067,29 +2079,83 @@ function appMenu () {
 }
 
 /* ---------------------------------------------------------------------
-   Seitenpanel
+   Bibliothek: Menü-Panel am Knopf in der Werkzeugleiste (wie in Firefox) –
+   Startansicht mit allen Bereichen, jeder Bereich als Unteransicht mit Zurück-Pfeil
    --------------------------------------------------------------------- */
 
 const PANEL_TITLES = { history: 'Verlauf', downloads: 'Downloads', notes: 'Seiten-Notizen', snapshots: 'Zeitkapseln', extensions: 'Erweiterungen', archive: 'Tab-Archiv', reading: 'Leseliste' }
+const LIBRARY = [
+  ['history', 'history', 'Verlauf', 'Strg+H'],
+  ['downloads', 'download', 'Downloads', 'Strg+J'],
+  ['reading', 'readlater', 'Leseliste', ''],
+  ['archive', 'tray', 'Tab-Archiv', ''],
+  ['notes', 'note', 'Seiten-Notizen', 'Strg+Umschalt+U'],
+  ['snapshots', 'archive', 'Zeitkapseln', ''],
+  ['extensions', 'puzzle', 'Erweiterungen', 'Strg+Umschalt+E']
+]
 
+// view: null = Startansicht, sonst ein Bereich aus PANEL_TITLES. Ein zweiter Aufruf mit demselben Bereich schließt.
 function togglePanel (name) {
-  if (S.panel === name) return closePanel()
-  S.panel = name
-  $('#panel').hidden = false
-  $('#panel-title').textContent = T(PANEL_TITLES[name])
-  renderPanel()
-  renderSbTools()
+  if (S.popover === 'library' && S.panel === name) return closePanel()
+  openLibrary(name)
 }
 function closePanel () {
+  if (S.popover === 'library') hidePopover()
   S.panel = null
-  $('#panel').hidden = true
-  renderSbTools()
+}
+
+function openLibrary (view = null) {
+  hideMenu()
+  S.panel = view
+  const p = showPopover($('#btn-library'), `
+    <div class="lib-head">
+      ${view ? `<button class="icon-btn sm" id="lib-back" title="${T('Zurück')}">${icon('back')}</button>` : ''}
+      <h3>${T(view ? PANEL_TITLES[view] : 'Bibliothek')}</h3>
+      <button class="icon-btn sm" id="lib-close" title="${T('Schließen')}">${icon('x')}</button>
+    </div>
+    <div class="lib-body scroll" id="panel-body"></div>`, 'library', 380)
+  const back = $('#lib-back', p)
+  if (back) back.onclick = () => openLibrary(null)
+  $('#lib-close', p).onclick = closePanel
+  renderPanel()
+  $('#btn-library').classList.add('on')
 }
 
 function renderPanel () {
   const body = $('#panel-body')
+  if (!body || S.popover !== 'library') return
+  if (!S.panel) return renderLibraryHome(body)
   const fn = { history: renderHistory, downloads: renderDownloads, notes: renderNotes, snapshots: renderSnapshots, extensions: renderExtensions, archive: renderArchive, reading: renderReadingList }[S.panel]
   if (fn) fn(body)
+}
+
+function renderLibraryHome (body) {
+  const running = [...S.downloads.values()].filter(d => d.state === 'progressing').length
+  const unread = S.data.readingList.filter(i => !i.read).length
+  const counts = { downloads: running ? T('{n} aktiv', { n: running }) : '', reading: unread ? String(unread) : '', archive: S.data.archive.length ? String(S.data.archive.length) : '' }
+  body.innerHTML = LIBRARY.map(([key, ic, label, hint]) => `
+    <button class="lib-item" data-view="${key}">${icon(ic)}<span class="grow">${T(label)}</span>${counts[key] ? `<span class="lib-count">${esc(counts[key])}</span>` : ''}${hint ? `<span class="lib-hint">${T(hint)}</span>` : ''}${icon('forward', 'lib-chev')}</button>`).join('')
+  body.querySelectorAll('[data-view]').forEach(b => { b.onclick = () => openLibrary(b.dataset.view) })
+  // Zuletzt geschlossene Tabs – wie „Kürzlich geschlossen“ in Chrome und Firefox
+  const closed = S.closed.filter(c => space(c.spaceId) && !space(c.spaceId).private).slice(-5).reverse()
+  if (closed.length) {
+    body.insertAdjacentHTML('beforeend', `<div class="lib-sep"></div><div class="lib-label">${T('Zuletzt geschlossen')}</div>`)
+    for (const c of closed) {
+      const row = document.createElement('button')
+      row.className = 'lib-item'
+      row.append(faviconEl(c.favicon, c.url))
+      row.insertAdjacentHTML('beforeend', `<span class="grow lib-title">${esc(c.title || hostOf(c.url))}</span>`)
+      row.onclick = () => {
+        S.closed = S.closed.filter(x => x !== c)
+        createTab({ url: c.url, title: c.title, favicon: c.favicon, spaceId: c.spaceId, nav: c.nav })
+        closePanel()
+      }
+      body.append(row)
+    }
+  }
+  body.insertAdjacentHTML('beforeend', `<div class="lib-sep"></div><button class="lib-item" id="lib-pw">${icon('key')}<span class="grow">${T('Passwörter')}</span></button><button class="lib-item" id="lib-import">${icon('importIcon')}<span class="grow">${T('Favoriten und Verlauf importieren …')}</span></button>`)
+  $('#lib-pw', body).onclick = () => { closePanel(); openSettings('passwords') }
+  $('#lib-import', body).onclick = () => { closePanel(); openImportDialog() }
 }
 
 function rowEl ({ url, favicon, title, sub, time, actions = [], onClick, iconName }) {
@@ -2226,7 +2292,7 @@ function renderDownloads (body) {
 }
 
 function updateDownloadDot () {
-  const b = $('#sb-tools [data-panel="downloads"]')
+  const b = $('#btn-library')
   if (!b) return
   const active = [...S.downloads.values()].some(d => d.state === 'progressing')
   b.querySelector('.dot')?.remove()
@@ -2621,7 +2687,7 @@ function renderReader () {
   const fonts = { serif: "Georgia, 'Iowan Old Style', 'Palatino Linotype', serif", sans: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif" }
   const colors = { light: ['#fbfaf7', '#1d1d22'], sepia: ['#f4ecd8', '#433422'], dark: ['#18181b', '#dcdce2'] }[r.theme]
   // Akzent für Links & Co. passend zum Lesehintergrund aufhellen bzw. abdunkeln (lesbar bei jeder Space-Farbe)
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#f2545b'
+  const raw = getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#2b6cd4'
   const accent = r.theme === 'dark' ? `oklch(from ${raw} max(l, .76) min(c, .14) h)` : `oklch(from ${raw} min(l, .5) min(c, .17) h)`
   const doc = `<!doctype html><html lang="${esc(r.art.lang)}"><head><meta charset="utf-8"><base target="_blank"><style>
     html{background:${colors[0]};color-scheme:${r.theme === 'dark' ? 'dark' : 'light'}}
@@ -2806,7 +2872,7 @@ async function openAdblockPopover () {
   const paused = adblockPaused(t?.url || '')
   const info = await A.invoke('adblock:info').catch(() => ({}))
   const updated = info.updated ? new Date(info.updated).toLocaleString(I18N.locale, { dateStyle: 'medium', timeStyle: 'short' }) : '–'
-  const p = showPopover($('#btn-adblock'), `
+  const p = showPopover($('#omni-site'), `
     <h3>${icon('shieldCheck')} ${T('Werbeblocker')}</h3>
     <div class="sub">${T('Mit den Filterlisten von uBlock Origin – blockiert Werbung (auch auf YouTube), Tracker und Schadseiten.')}</div>
     <div class="flex" style="gap:10px">
@@ -2870,36 +2936,108 @@ function applySiteSettings (tab) {
 
 const PERM_ROWS = [['media-video', 'Kamera'], ['media-audio', 'Mikrofon'], ['geolocation', 'Standort'], ['notifications', 'Benachrichtigungen']]
 
-function openSitePopover () {
+// Seiten-Menü (Knopf vorn in der Adresszeile): alles, was die aktuelle Website betrifft –
+// Verbindung, Werbeblocker, VPN, Leseansicht, Übersetzen, Leseliste, Boosts, Zoom und Website-Rechte
+function openSitePopover (view = 'main') {
   const t = activeTab()
   if (!t || !/^https?:/.test(t.url)) return
-  if (S.popover === 'site') return hidePopover()
   const u = new URL(t.url)
+  const host = hostOf(t.url)
+  const secure = u.protocol === 'https:' && !S.certOverrides.has(u.host)
+  const head = (title, back) => `<div class="pm-head">${back ? `<button class="icon-btn sm" data-a="back" title="${T('Zurück')}">${icon('back')}</button>` : ''}<h3>${esc(title)}</h3><button class="icon-btn sm" data-a="close" title="${T('Schließen')}">${icon('x')}</button></div>`
+  if (view === 'settings') return siteSettingsView(t, u, head)
+  const st = settings()
+  const adOn = st.adblock !== false
+  const adPaused = adblockPaused(t.url)
+  const v = S.vpn || { status: 'off' }
+  const vpnOn = v.status === 'on' || v.status === 'connecting'
+  const vpnSub = v.status === 'on' ? v.label : v.status === 'connecting' ? T('Verbindet … {p} %', { p: v.progress || 0 }) : v.status === 'error' ? T('Fehler: {e}', { e: v.error || '' }) : T('Aus')
+  const pct = Math.round(Math.pow(1.2, t.zoom || 0) * 100)
+  const row = (a, ic, label, hint = '') => `<button class="pm-row" data-a="${a}">${icon(ic)}<span class="grow">${T(label)}</span>${hint ? `<span class="pm-hint">${T(hint)}</span>` : ''}</button>`
+  const html = `${head(host)}
+    <button class="pm-row" data-a="settings">${icon(secure ? 'lock' : 'warning')}<span class="grow">${secure ? T('Verbindung ist sicher') : T('Verbindung ist nicht sicher')}</span>${icon('forward', 'pm-chev')}</button>
+    <div class="pm-sep"></div>
+    <div class="pm-row static">${icon(adOn && !adPaused ? 'shieldCheck' : 'shield')}<div class="grow"><div>${T('Werbeblocker')}</div><div class="pm-sub">${!adOn ? T('Überall ausgeschaltet') : adPaused ? T('Auf dieser Website pausiert') : T('{n} Anfragen blockiert', { n: t.blocked || 0 })}</div></div>
+      <button class="btn ghost sm" data-a="adblock-more" title="${T('Werbeblocker-Einstellungen')}">${icon('dots')}</button>
+      <label class="switch" title="${esc(T('Auf {host} aktiv', { host }))}"><input type="checkbox" id="pm-ad" ${adOn && !adPaused ? 'checked' : ''} ${adOn ? '' : 'disabled'}><span></span></label></div>
+    <div class="pm-row static">${icon('vpn')}<div class="grow"><div>VPN</div><div class="pm-sub">${esc(vpnSub)}</div></div>
+      <button class="btn ghost sm" data-a="vpn-more" title="${T('VPN-Menü')}">${icon('dots')}</button>
+      <label class="switch" title="VPN"><input type="checkbox" id="pm-vpn" ${vpnOn ? 'checked' : ''}><span></span></label></div>
+    <div class="pm-sep"></div>
+    ${row('reader', 'reader', S.reader ? 'Leseansicht schließen' : 'Leseansicht', 'F9')}
+    ${row('translate', 'translate', isTranslated(t.url) ? 'Original anzeigen' : 'Übersetzen …')}
+    ${isPrivateTab(t) ? '' : row('later', 'readlater', S.data.readingList.some(i => i.url === t.url) ? 'Auf der Leseliste' : 'Zur Leseliste hinzufügen')}
+    ${row('note', 'note', 'Notiz zu dieser Seite', 'Strg+Umschalt+U')}
+    ${row('pick', 'eye', 'Element ausblenden …')}
+    ${row('boost', 'bolt', boostOf(t.url) ? 'Boost bearbeiten …' : 'Boost …')}
+    <div class="pm-sep"></div>
+    <div class="pm-row static"><span class="grow">${T('Zoom')}</span><button class="icon-btn sm" data-a="zoom-out" title="${T('Verkleinern (Strg+-)')}">${icon('minus')}</button><button class="pm-zoom" data-a="zoom-reset" title="${T('Zurücksetzen (Strg+0)')}">${pct} %</button><button class="icon-btn sm" data-a="zoom-in" title="${T('Vergrößern (Strg++)')}">${icon('plus')}</button></div>
+    <button class="pm-row" data-a="settings"><span class="grow">${T('Website-Einstellungen')}</span>${icon('forward', 'pm-chev')}</button>`
+  const p = showPopover($('#omni-site'), html, 'site', 340)
+  p.style.left = Math.max(8, $('#omni-site').getBoundingClientRect().left - 6) + 'px'
+  p.onclick = e => {
+    const a = e.target.closest('[data-a]')?.dataset.a
+    if (!a) return
+    if (a === 'close') return hidePopover()
+    if (a === 'settings') return openSitePopover('settings')
+    if (a === 'adblock-more') return openAdblockPopover()
+    if (a === 'vpn-more') return openVpnPopover()
+    if (a === 'reader') { hidePopover(); return toggleReader() }
+    if (a === 'translate') { if (isTranslated(t.url)) { hidePopover(); return loadInTab(t, originalUrl(t.url)) } return openTranslatePopover() }
+    if (a === 'later') { hidePopover(); return readLater(t) }
+    if (a === 'note') { return openLibrary('notes') }
+    if (a === 'pick') return pickElement(t)
+    if (a === 'boost') return openBoostDialog(host)
+    if (a.startsWith('zoom')) {
+      zoom(a === 'zoom-in' ? 1 : a === 'zoom-out' ? -1 : 0)
+      $('.pm-zoom', p).textContent = Math.round(Math.pow(1.2, t.zoom || 0) * 100) + ' %'
+    }
+  }
+  $('#pm-ad', p).onchange = e => {
+    const list = new Set(st.adblockAllowlist || [])
+    if (e.target.checked) list.delete(host); else list.add(host)
+    st.adblockAllowlist = [...list]
+    saveSettingsNow()
+    updateAdblockChip()
+    if (t.ready) t.webview.reload()
+    openSitePopover()
+  }
+  $('#pm-vpn', p).onchange = async e => {
+    if (!e.target.checked) await A.invoke('vpn:disconnect')
+    else if (st.vpnMode === 'server' && !st.vpnServers.length) { e.target.checked = false; return openVpnPopover() }
+    else A.invoke('vpn:connect')
+  }
+}
+
+// Unteransicht „Website-Einstellungen“: Verbindung, Rechte, Pop-ups, Ton, Website-Daten
+function siteSettingsView (t, u, head) {
   const origin = u.origin
   const host = hostOf(t.url)
   const cfg = siteCfg(t.url)
   const perms = S.data.permissions[origin] || {}
   const sel = (key, value, options) => `<select class="input sm" data-k="${key}">${options.map(([v, l]) => `<option value="${v}" ${String(value ?? '') === v ? 'selected' : ''}>${T(l)}</option>`).join('')}</select>`
   const permOpts = [['', 'Fragen'], ['true', 'Zulassen'], ['false', 'Blockieren']]
-  const secure = u.protocol === 'https:' && !S.certOverrides.has(u.host)
   const conn = u.protocol === 'http:' ? T('Die Verbindung ist nicht verschlüsselt. Gib hier keine Passwörter oder Zahlungsdaten ein.')
     : S.certOverrides.has(u.host) ? T('Das Zertifikat dieser Website ist ungültig und wurde von dir manuell zugelassen.')
       : T('Die Verbindung ist sicher. Deine Daten werden verschlüsselt übertragen.')
-  const pct = Math.round(Math.pow(1.2, cfg.zoom || 0) * 100)
-  const html = `
-    <h3>${icon(secure ? 'lock' : 'warning')} ${esc(host)}</h3>
-    <div class="sub">${esc(conn)}</div>
-    <div class="site-grid">
+  const html = `${head(host, true)}
+    <div class="pm-text">${esc(conn)}</div>
+    <div class="pm-sep"></div>
+    <div class="site-grid pm-pad">
       ${PERM_ROWS.map(([k, l]) => `<span>${T(l)}</span>${sel('perm:' + k, perms[k], permOpts)}`).join('')}
       <span>${T('Pop-ups und Weiterleitungen')}</span>${sel('popups', cfg.popups, [['', 'Blockieren (Standard)'], ['allow', 'Zulassen'], ['block', 'Blockieren ohne Hinweis']])}
       <span>${T('Ton')}</span>${sel('sound', cfg.sound, [['', 'Automatisch'], ['mute', 'Stumm']])}
     </div>
-    ${cfg.zoom ? `<div class="flex" style="margin-top:10px"><span class="grow muted">${T('Zoom: {pct} %', { pct })}</span><button class="btn ghost sm" id="site-zoom">${T('Zurücksetzen')}</button></div>` : ''}
-    <div class="pop-sep"></div>
-    <div class="flex" style="gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="site-boost">${icon('bolt')} ${boostOf(t.url) ? T('Boost bearbeiten …') : T('Boost …')}</button><button class="btn ghost sm" id="site-pick">${icon('eye')} ${T('Element ausblenden …')}</button></div>
-    <div class="flex" style="gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn ghost sm" id="site-clear">${icon('trash')} ${T('Cookies und Website-Daten löschen')}</button><button class="btn ghost sm" id="site-all">${T('Alle Website-Einstellungen')}</button></div>`
-  const p = showPopover($('#omni-site'), html, 'site', 340)
-  p.style.left = Math.max(8, $('#omni-site').getBoundingClientRect().left - 8) + 'px'
+    <div class="pm-sep"></div>
+    <button class="pm-row" id="site-clear">${icon('trash')}<span class="grow">${T('Cookies und Website-Daten löschen')}</span></button>
+    <button class="pm-row" id="site-all">${icon('settings')}<span class="grow">${T('Alle Website-Einstellungen')}</span></button>`
+  const p = showPopover($('#omni-site'), html, 'site', 360)
+  p.style.left = Math.max(8, $('#omni-site').getBoundingClientRect().left - 6) + 'px'
+  p.onclick = e => {
+    const a = e.target.closest('[data-a]')?.dataset.a
+    if (a === 'close') hidePopover()
+    if (a === 'back') openSitePopover()
+  }
   p.querySelectorAll('select[data-k]').forEach(s => {
     s.onchange = () => {
       const k = s.dataset.k
@@ -2918,8 +3056,6 @@ function openSitePopover () {
       toast('Gespeichert', 'Gilt ab dem nächsten Laden der Seite.', 'check', { duration: 1800 })
     }
   })
-  const zr = $('#site-zoom', p)
-  if (zr) zr.onclick = () => { setSiteCfg(t.url, 'zoom', 0); applySiteSettings(t); hidePopover() }
   $('#site-clear', p).onclick = async () => {
     hidePopover()
     await A.invoke('site:clear-data', origin)
@@ -2927,8 +3063,6 @@ function openSitePopover () {
     if (t.ready) t.webview.reload()
   }
   $('#site-all', p).onclick = () => openSettings('privacy')
-  $('#site-boost', p).onclick = () => openBoostDialog(host)
-  $('#site-pick', p).onclick = () => pickElement(t)
 }
 
 /* ---------------------------------------------------------------------
@@ -3181,6 +3315,7 @@ function updateVpnPill () {
   const v = S.vpn || { status: 'off' }
   const b = $('#btn-vpn')
   b.className = 'vpn-pill ' + ({ on: 'on', connecting: 'connecting', error: 'error' }[v.status] || '')
+  b.hidden = !['on', 'connecting', 'error'].includes(v.status) // aus: steht im Seiten-Menü und im ⋮-Menü
   const label = v.status === 'on' ? (v.country || 'VPN') : v.status === 'connecting' ? `${v.progress || 0} %` : 'VPN'
   b.innerHTML = `<span class="dotv"></span>${esc(label)}`
   b.title = v.status === 'on' ? T('VPN aktiv: {label}', { label: v.label }) + (v.ip ? ' · ' + v.ip : '') : v.status === 'connecting' ? T('VPN verbindet …') : v.status === 'error' ? T('VPN-Fehler: {error}', { error: v.error }) : T('VPN (aus)')
@@ -3340,7 +3475,7 @@ const dockEnabled = () => !!assistant() && !!settings().claudeSidebar
 function applyAssistant () {
   const a = assistant()
   document.documentElement.style.setProperty('--claude', a?.color || '#e0845f')
-  $('#btn-claude').innerHTML = `${icon('chat')}<span>${esc(a?.name || T('KI'))}</span>`
+  $('#btn-claude').innerHTML = icon('sidebarRight')
   $('#btn-claude').title = T('{ai}-Seitenleiste (Strg+E)', { ai: a?.name || T('KI') })
   $('#dock-send').title = T('Aktuelle Seite an {ai} übergeben', { ai: a?.name || T('die KI') })
   $('#btn-claude').hidden = !dockEnabled() && !agentEnabled()
@@ -4138,7 +4273,7 @@ async function openSettings (section = 'general') {
   const st = settings()
   const nav = [
     ['general', 'settings', T('Allgemein')],
-    ['appearance', 'sparkles', T('Darstellung')],
+    ['appearance', 'eye', T('Darstellung')],
     ['claude', 'chat', T('KI-Assistent')],
     ['adblock', 'shieldCheck', T('Werbeblocker')],
     ['vpn', 'vpn', 'VPN'],
@@ -4190,7 +4325,7 @@ async function openSettings (section = 'general') {
         ? row(T('Kompakte Seitenleiste'), T('Nur Symbole anzeigen (Strg+B).'), toggle('sidebarCollapsed', st.sidebarCollapsed))
         : row(T('Favoritenleiste'), T('Deine Favoriten als Leiste unter der Adressleiste (Strg+B).'), toggle('showFavbar', st.showFavbar !== false))}
       ${row(T('Kompakte Darstellung'), T('Niedrigere Leisten und Tabs – mehr Platz für Webseiten.'), toggle('compactUi', st.compactUi))}
-      ${row(T('Space-Farbe'), T('Jeder Space hat seine eigene Akzentfarbe – per Rechtsklick auf das Space-Symbol änderbar.'), `<button class="btn ghost" id="set-space">${T('Aktuellen Space bearbeiten')}</button>`)}
+      ${row(T('Space-Farbe'), T('Jeder Space hat eine eigene Farbe – sie markiert ihn im Space-Umschalter.'), `<button class="btn ghost" id="set-space">${T('Aktuellen Space bearbeiten')}</button>`)}
       <div class="set-row" style="display:block"><div class="t">${T('Boosts')}</div><div class="d">${T('Eigene Anpassungen pro Website: Elemente ausblenden, eigenes CSS und JavaScript. Anlegen über das Schloss-Symbol in der Adressleiste oder per Rechtsklick › „Element ausblenden …“.')}</div>
         ${Object.keys(S.data.boosts || {}).length ? Object.entries(S.data.boosts).map(([host, b]) => `<div class="flex" style="margin-top:8px"><span class="grow" style="word-break:break-all">${esc(host)}<br><span class="muted" style="font-size:12px">${[
           b.off ? T('pausiert') : '',
@@ -4994,8 +5129,10 @@ function initToolbar () {
   $('#btn-adblock').onclick = () => S.popover === 'adblock' ? hidePopover() : openAdblockPopover()
   $('#btn-popup').onclick = openPopupPopover
   $('#btn-translate').onclick = openTranslatePopover
-  $('#omni-site').onclick = openSitePopover
+  $('#omni-site').onclick = () => S.popover === 'site' ? hidePopover() : openSitePopover()
   $('#btn-vpn').onclick = () => S.popover === 'vpn' ? hidePopover() : openVpnPopover()
+  $('#btn-library').innerHTML = icon('library')
+  $('#btn-library').onclick = () => S.popover === 'library' ? closePanel() : openLibrary(null)
   $('#btn-split').innerHTML = icon('split')
   $('#btn-split').onclick = toggleSplit
   $('#btn-cast').innerHTML = icon('cast')
@@ -5007,8 +5144,6 @@ function initToolbar () {
   $('#btn-menu').onclick = appMenu
   $('#btn-newtab .nt-plus').innerHTML = icon('plus')
   $('#btn-newtab').onclick = () => { createTab(); setTimeout(focusOmnibox, 50) }
-  $('#panel-close').innerHTML = icon('x')
-  $('#panel-close').onclick = closePanel
 }
 
 // Beim Schließen des Fensters alle noch ausstehenden Speichervorgänge sofort ausführen
@@ -5026,7 +5161,7 @@ function flushPending () {
 function initGlobalEvents () {
   document.addEventListener('mousedown', e => {
     if (!$('#menu').hidden && !e.target.closest('#menu')) hideMenu()
-    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-adblock, #btn-vpn, #focus-hud, #btn-star, #btn-popup, #btn-translate, #omni-site')) hidePopover()
+    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-adblock, #btn-vpn, #focus-hud, #btn-star, #btn-popup, #btn-translate, #omni-site, #btn-library')) hidePopover()
   })
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeTopLayer()
@@ -5230,6 +5365,7 @@ function initGlobalEvents () {
   A.on('cast:sessions', list => {
     S.cast.sessions = list
     $('#btn-cast').classList.toggle('on', list.length > 0)
+    $('#btn-cast').hidden = !list.length // nur während eines Streams sichtbar (wie in Chrome)
     refreshCast()
   })
   A.on('cast:ended', ({ deviceId, reason }) => {
@@ -5273,6 +5409,11 @@ async function boot () {
   I18N.translateDom(document.body)
   S.data = await A.invoke('store:all')
   S.data.focusStats = S.data.focusStats || { sessions: 0, minutes: 0 }
+  // Neue Oberfläche (Tabs oben, neutrale Leisten): ältere Profile einmalig umstellen – in den Einstellungen änderbar
+  if ((S.data.settings.uiRev || 0) < 5) {
+    Object.assign(S.data.settings, { tabLayout: 'chrome', ambient: false, uiRev: 5 })
+    A.send('store:set', 'settings', S.data.settings)
+  }
   S.adblockBase = S.data.stats?.blocked || 0
   S.adblockTotal = S.adblockBase
   try { S.newtabOverride = await A.invoke('ext:newtab-override') } catch {}
@@ -5302,7 +5443,6 @@ async function boot () {
   if (!S.spaces.length) S.spaces.push({ id: 'space-personal', name: T('Persönlich'), color: '#f2545b', icon: '✦', tabIds: [], activeId: null, split: null })
   const start = space(S.data.activeSpace) ? S.data.activeSpace : S.spaces[0].id
   S.activeSpace = start
-  renderSbTools()
   switchSpace(start, { initial: true })
   startSleepTimer()
   A.send('ui:ready')
@@ -5310,7 +5450,7 @@ async function boot () {
 
   if (!S.data.history.length && !localStorage.getItem('caravel-welcomed')) {
     try { localStorage.setItem('caravel-welcomed', '1') } catch {}
-    setTimeout(() => toast('Willkommen bei Caravel', 'Strg+K öffnet die Befehlspalette, Strg+E die KI-Seitenleiste (Claude oder ChatGPT – unter Einstellungen › KI-Assistent wählbar).', 'sparkles', { duration: 8000 }), 900)
+    setTimeout(() => toast('Willkommen bei Caravel', 'Strg+K öffnet die Befehlspalette, Strg+E die KI-Seitenleiste (Claude oder ChatGPT – unter Einstellungen › KI-Assistent wählbar).', 'info', { duration: 8000 }), 900)
   }
 }
 

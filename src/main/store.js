@@ -7,7 +7,8 @@ const DEFAULTS = {
     language: 'auto', // 'auto' (Systemsprache) | 'de' | 'en'
     searchEngine: 'google',
     theme: 'dark',
-    ambient: true,
+    ambient: false, // Leisten dezent in der Markenfarbe der Website tönen
+    // uiRev (Stand der Oberfläche) fehlt hier absichtlich: ältere Profile ohne den Wert stellt app.js beim Start einmalig um
     adblock: true,
     adblockCookies: false,
     twitchAds: true, // Twitch-Werbepausen überspringen (eigenes Skript, siehe twitch-ads.js)
@@ -28,7 +29,7 @@ const DEFAULTS = {
     assistant: 'claude',
     autoDarkPages: true,
     miniPlayer: true, // Video mit Ton beim Tab-Wechsel als Bild-im-Bild weiterspielen
-    tabLayout: 'sidebar', // 'sidebar' | 'chrome' | 'safari'
+    tabLayout: 'chrome', // 'chrome' (Tabs oben) | 'sidebar' | 'safari'
     showFavbar: true,
     compactUi: false,
     claudeSidebar: true,

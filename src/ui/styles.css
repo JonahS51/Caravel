@@ -1,14 +1,15 @@
 /* =====================================================================
-   Caravel – Oberfläche „Stille“
-   Der Browser tritt zurück, die Seite spricht: ein ruhiger Rahmen aus Graphit
-   bzw. Papier, Haarlinien statt Flächen, Akzentfarbe nur dort, wo gerade
-   Aufmerksamkeit ist (Fokus, aktiver Tab, aktiver Space, Schalter, Ladebalken).
+   Caravel – Oberfläche
+   Zurückhaltend wie ein Systemprogramm: neutrale Grautöne, Haarlinien,
+   ein einziger blauer Akzent für Fokus, Auswahl und Schalter. Die Farbe
+   des Spaces erscheint nur als Punkt am Space-Umschalter.
    ===================================================================== */
 
-/* ---------- 1. Tokens: global (--accent, --ambient und --toolbar setzt JS inline auf <html>) ---------- */
+/* ---------- 1. Tokens: global (--space, --ambient und --toolbar setzt JS inline auf <html>) ---------- */
 :root {
-  --accent: #f2545b;
-  --ambient: #f2545b;
+  --accent: #2b6cd4;
+  --space: #2b6cd4;
+  --ambient: #2b6cd4;
   --claude: #d97757;
   --toolbar: #161618;
   --dock-w: 420px;
@@ -28,53 +29,56 @@
   --d-1: 90ms; --d-2: 160ms; --d-3: 240ms; --d-4: 360ms;
 }
 
-/* ---------- 2. Tokens: Graphit (dunkel) ---------- */
+/* ---------- 2. Tokens: dunkel ---------- */
 body.theme-dark {
   color-scheme: dark;
-  --bg: #161618; --bg-2: #1c1c1f; --elev: #232326; --elev-2: #2b2b2f; --paper: #1c1c1f; --stage-bg: #1c1c1f;
-  --text: #ececee; --text-2: #a3a3aa; --text-3: #78787f;
-  --line: rgba(255, 255, 255, .085); --line-2: rgba(255, 255, 255, .14);
-  --hover: rgba(255, 255, 255, .055); --press: rgba(255, 255, 255, .085);
-  --field: rgba(255, 255, 255, .06); --field-hover: rgba(255, 255, 255, .08);
-  --raised: rgba(255, 255, 255, .12);
-  --tab-active: rgba(255, 255, 255, .075);
-  --shadow-tab: 0 0 0 1px rgba(255, 255, 255, .045), 0 1px 2px rgba(0, 0, 0, .35);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35), 0 0 0 1px rgba(255, 255, 255, .06);
-  --shadow-pop: 0 12px 32px -8px rgba(0, 0, 0, .6), 0 2px 6px -2px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .09);
-  --shadow-modal: 0 32px 80px -16px rgba(0, 0, 0, .72), 0 0 0 1px rgba(255, 255, 255, .1);
-  --scrim: rgba(0, 0, 0, .52);
+  --accent: #6ea2f5;
+  --frame: #1e1e21; --bar: #2d2d31;
+  --bg: #1e1e21; --bg-2: #2d2d31; --elev: #2d2d31; --elev-2: #36363b; --paper: #2d2d31; --stage-bg: #1e1e21;
+  --text: #e8e8eb; --text-2: #b3b3ba; --text-3: #8b8b93;
+  --line: rgba(255, 255, 255, .09); --line-2: rgba(255, 255, 255, .16);
+  --hover: rgba(255, 255, 255, .07); --press: rgba(255, 255, 255, .11);
+  --field: #1e1e21; --field-hover: #232327;
+  --raised: #44444a;
+  --tab-active: #3a3a3f;
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .1);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, .6), 0 0 0 1px rgba(255, 255, 255, .1);
+  --scrim: rgba(0, 0, 0, .5);
   --ok: #3fb950; --warn: #d29922; --danger: #f85149; --danger-fill: #da3633;
-  --ink: #ececee; --on-ink: #161618;
-  /* Akzent-Ableitungen: Text/Symbole, Ring/Markierung, Auswahlfläche, Linie, lesbarer Vordergrund auf Akzent */
-  --accent-ink: oklch(from var(--accent) max(l, .76) min(c, .14) h);
-  --accent-ring: oklch(from var(--accent) max(l, .68) c h);
-  --accent-wash: color-mix(in oklab, var(--accent) 17%, transparent);
-  --accent-line: color-mix(in oklab, var(--accent-ring) 55%, transparent);
-  --on-accent: oklch(from var(--accent) calc(.2 + .8 * clamp(0, (.62 - l) * 1000, 1)) 0 0);
+  --ink: #6ea2f5; --on-ink: #10141c;
+  --accent-ink: var(--accent);
+  --accent-ring: var(--accent);
+  --accent-wash: rgba(110, 162, 245, .18);
+  --accent-line: rgba(110, 162, 245, .5);
+  --on-accent: #10141c;
 }
 
-/* ---------- 3. Tokens: Papier (hell) ---------- */
+/* ---------- 3. Tokens: hell ---------- */
 body.theme-light {
   color-scheme: light;
-  --bg: #f2f2f1; --bg-2: #f8f8f7; --elev: #ffffff; --elev-2: #f6f6f5; --paper: #ffffff; --stage-bg: #ffffff;
-  --text: #1d1d1f; --text-2: #5b5b61; --text-3: #7d7d83;
-  --line: rgba(0, 0, 0, .085); --line-2: rgba(0, 0, 0, .15);
-  --hover: rgba(0, 0, 0, .045); --press: rgba(0, 0, 0, .075);
-  --field: rgba(0, 0, 0, .05); --field-hover: rgba(0, 0, 0, .065);
+  --accent: #2b6cd4;
+  --frame: #e3e3e8; --bar: #f9f9fb;
+  --bg: #e3e3e8; --bg-2: #f9f9fb; --elev: #ffffff; --elev-2: #f4f4f6; --paper: #ffffff; --stage-bg: #ffffff;
+  --text: #1f1f22; --text-2: #55555c; --text-3: #7c7c84;
+  --line: rgba(0, 0, 0, .1); --line-2: rgba(0, 0, 0, .17);
+  --hover: rgba(0, 0, 0, .06); --press: rgba(0, 0, 0, .1);
+  --field: #ebebef; --field-hover: #e4e4e9;
   --raised: #ffffff;
   --tab-active: #ffffff;
-  --shadow-tab: 0 0 0 1px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .07);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .06), 0 0 0 1px rgba(0, 0, 0, .07);
-  --shadow-pop: 0 10px 28px -8px rgba(0, 0, 0, .16), 0 2px 6px -2px rgba(0, 0, 0, .06), 0 0 0 1px rgba(0, 0, 0, .08);
-  --shadow-modal: 0 28px 72px -18px rgba(0, 0, 0, .26), 0 0 0 1px rgba(0, 0, 0, .08);
-  --scrim: rgba(28, 28, 30, .24);
-  --ok: #1a7f37; --warn: #9a6700; --danger: #cf222e; --danger-fill: #cf222e;
-  --ink: #1d1d1f; --on-ink: #ffffff;
-  --accent-ink: oklch(from var(--accent) min(l, .50) min(c, .17) h);
-  --accent-ring: oklch(from var(--accent) min(l, .60) c h);
-  --accent-wash: color-mix(in oklab, var(--accent-ring) 12%, transparent); /* aus dem Ring, damit Gelb/Limette sichtbar bleiben */
-  --accent-line: color-mix(in oklab, var(--accent-ring) 50%, transparent);
-  --on-accent: oklch(from var(--accent) calc(.2 + .8 * clamp(0, (.62 - l) * 1000, 1)) 0 0);
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, .08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .1);
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, .16), 0 0 0 1px rgba(0, 0, 0, .12);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, .22), 0 0 0 1px rgba(0, 0, 0, .1);
+  --scrim: rgba(20, 20, 24, .28);
+  --ok: #1a7f37; --warn: #9a6700; --danger: #c42b1c; --danger-fill: #c42b1c;
+  --ink: #2b6cd4; --on-ink: #ffffff;
+  --accent-ink: #1f5bb8;
+  --accent-ring: var(--accent);
+  --accent-wash: #e3ecfa;
+  --accent-line: rgba(43, 108, 212, .45);
+  --on-accent: #ffffff;
 }
 
 /* Altnamen – Inline-Styles in app.js verwenden sie noch */
@@ -141,7 +145,6 @@ body.html-fullscreen #app { grid-template-columns: 0 1fr; }
 }
 .fav:hover { background: var(--hover); }
 .fav.active { background: var(--tab-active); border-color: transparent; box-shadow: var(--shadow-tab); }
-.fav.active::after { content: ""; position: absolute; left: 50%; bottom: 4px; width: 12px; height: 2px; margin-left: -6px; border-radius: 1px; background: var(--accent-ring); }
 .fav img, .fav .letter { width: 18px; height: 18px; border-radius: var(--r-xs); }
 .fav-label { display: none; }
 .fav.folder .fav-folder { display: grid; place-items: center; color: var(--text-2); }
@@ -178,7 +181,6 @@ body.html-fullscreen #app { grid-template-columns: 0 1fr; }
 .tab:hover, .tab.active { padding-right: 32px; } /* Platz für den Schließen-Knopf nur, wenn er sichtbar ist */
 .tab:hover { background: var(--hover); color: var(--text); }
 .tab.active { background: var(--tab-active); color: var(--text); box-shadow: var(--shadow-tab); }
-.tab.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent-ring); }
 .tab.in-split { box-shadow: inset 0 0 0 1px var(--line-2); }
 .tab.sleeping .fav-ico { filter: grayscale(1); opacity: .5; }
 .tab.sleeping .title { color: var(--text-3); }
@@ -193,7 +195,7 @@ body.html-fullscreen #app { grid-template-columns: 0 1fr; }
 .tab .badge:empty { display: none; }
 .tab .badge .i { width: 14px; height: 14px; }
 .tab .badge.audio { color: var(--text-2); cursor: pointer; }
-.tab .badge.agent { color: var(--claude); animation: breathe 2.4s var(--ease-io) infinite; }
+.tab .badge.agent { color: var(--text-2); animation: breathe 2.4s var(--ease-io) infinite; }
 .tab .pin-dot { display: grid; color: var(--text-3); }
 #sidebar .tab .badge.state:has(> .pin-dot) { display: none; } /* „Angeheftet“ steht schon als Abschnitt darüber */
 .tab .close {
@@ -272,7 +274,7 @@ body.sidebar-collapsed .spaces, body.sidebar-collapsed .sb-tools { flex-directio
 .icon-btn:hover { background: var(--hover); color: var(--text); }
 .icon-btn:active { background: var(--press); }
 .icon-btn:disabled { opacity: .32; pointer-events: none; }
-.icon-btn.on { color: var(--accent-ink); background: var(--accent-wash); }
+.icon-btn.on { color: var(--text); background: var(--press); }
 .icon-btn.sm { width: 26px; height: 26px; border-radius: var(--r-sm); }
 .icon-btn.sm .i { width: 16px; height: 16px; }
 .icon-btn .dot { position: absolute; right: 6px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-ring); box-shadow: 0 0 0 2px var(--toolbar); }
@@ -464,7 +466,7 @@ body.html-fullscreen #toolbar, body.html-fullscreen #tabstrip, body.html-fullscr
 .dock-head { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px 0 10px; border-bottom: 1px solid var(--line); flex: none; }
 .dock-tabs button { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); }
 .dock-tabs button .i { width: 14px; height: 14px; }
-.dock-tabs button.on .i { color: var(--claude); }
+.dock-tabs button.on .i { color: var(--text); }
 .dock-body { flex: 1; position: relative; background: var(--stage-bg); }
 .dock-body webview { position: absolute; inset: 0; visibility: hidden; }
 .dock-body webview.visible { visibility: visible; }
@@ -475,8 +477,8 @@ body.html-fullscreen #toolbar, body.html-fullscreen #tabstrip, body.html-fullscr
 .agent-pane[hidden] { display: none; }
 .agent-log { flex: 1; overflow-y: auto; padding: 14px 14px 8px; display: flex; flex-direction: column; gap: 8px; user-select: text; }
 .agent-empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 24px 12px; color: var(--text-2); line-height: 1.5; }
-.agent-empty > .i { width: 28px; height: 28px; color: var(--claude); }
-.ag-user { align-self: flex-end; max-width: 88%; padding: 8px 12px; border-radius: var(--r-md); background: var(--accent-wash); color: var(--text); white-space: pre-wrap; line-height: 1.5; }
+.agent-empty > .i { width: 28px; height: 28px; color: var(--text-3); }
+.ag-user { align-self: flex-end; max-width: 88%; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: var(--field); color: var(--text); white-space: pre-wrap; line-height: 1.5; }
 .ag-text { white-space: pre-wrap; line-height: 1.55; color: var(--text); }
 .ag-progress { font-size: var(--fs-sm); color: var(--text-2); font-style: italic; line-height: 1.45; }
 .ag-step { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-2); min-width: 0; }
@@ -726,8 +728,6 @@ body.layout-safari .tabstrip .wco-spacer { display: none; }
 .tabstrip .tab.drop-after { box-shadow: 2px 0 0 var(--accent-ring); }
 
 /* Chrome: Tabs oben, der aktive Tab ist ein Blatt, das in die Adresszeile übergeht */
-body.layout-chrome { --bar: var(--elev); }
-body.theme-dark.layout-chrome { --bar: #222225; }
 body.layout-chrome .tabstrip { height: var(--toolbar-h); align-items: flex-end; }
 body.layout-chrome .ts-spaces { align-self: center; }
 body.layout-chrome .ts-tabs { align-self: stretch; align-items: flex-end; }
@@ -786,6 +786,53 @@ body.layout-safari .tabstrip .tab.pinned { flex: 0 0 40px; min-width: 40px; padd
 .favbar .sb-tools .icon-btn .dot { right: 3px; top: 3px; }
 .fav-empty { font-size: var(--fs-sm); color: var(--text-3); padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fav.overflow { display: none !important; }
+
+/* Space-Umschalter links in der Tab-Leiste */
+.space-switch {
+  height: 30px; max-width: 200px; padding: 0 8px; display: flex; align-items: center; gap: 7px; cursor: pointer;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-weight: 600;
+  -webkit-app-region: no-drag;
+}
+.space-switch:hover { background: var(--hover); }
+.space-switch .sw-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.space-switch .sw-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.space-switch .i { width: 12px; height: 12px; color: var(--text-3); }
+.space-switch .i:first-child { width: 16px; height: 16px; color: var(--text-2); }
+body.layout-chrome .ts-spaces { margin: 0 2px 0 0; }
+body.layout-chrome .ts-spaces::after { content: ""; width: 1px; height: 18px; background: var(--line-2); align-self: center; margin-left: 6px; }
+.menu .m-dot { width: 8px; height: 8px; border-radius: 50%; margin: 0 4px; flex: none; }
+
+/* Menü-Popover (Bibliothek, Seiten-Menü): Zeilen bis an den Rand wie in Systemmenüs */
+.popover.menu-pop { padding: 4px 0; max-height: calc(100vh - 96px); display: flex; flex-direction: column; border-radius: var(--r); }
+.lib-head, .pm-head { display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 6px 0 14px; flex: none; }
+.lib-head:has(#lib-back), .pm-head:has([data-a="back"]) { padding-left: 6px; }
+.lib-head h3, .pm-head h3 { flex: 1; margin: 0; font: 600 var(--fs-lg) var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-body { flex: 1; min-height: 0; padding: 0 0 4px; border-top: 1px solid var(--line); }
+/* Bereiche, die bisher im Seitenpanel lagen, bekommen etwas Innenabstand */
+.lib-body > :not(.lib-item):not(.lib-sep):not(.lib-label) { margin-left: 10px; margin-right: 10px; }
+.lib-body > .panel-search { width: calc(100% - 20px); margin-top: 10px; }
+.lib-body > .panel-note { margin: 10px 14px; }
+.lib-item, .pm-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 34px; padding: 0 14px; text-align: left;
+  border: 0; background: transparent; color: var(--text); cursor: pointer; font: inherit;
+}
+.lib-item:hover, .pm-row:not(.static):hover { background: var(--hover); }
+.lib-item .i, .pm-row > .i { width: 16px; height: 16px; color: var(--text-2); }
+.lib-item img, .lib-item .letter { width: 16px; height: 16px; border-radius: 3px; flex: none; }
+.lib-item .lib-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-count { font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.lib-hint, .pm-hint { font-size: var(--fs-sm); color: var(--text-3); }
+.lib-chev, .pm-chev { width: 14px !important; height: 14px !important; color: var(--text-3) !important; }
+.lib-sep, .pm-sep { height: 1px; background: var(--line); margin: 4px 0; flex: none; }
+.lib-label { font: 600 var(--fs-sm) var(--font); color: var(--text-3); padding: 8px 14px 4px; }
+.pm-row.static { cursor: default; min-height: 44px; }
+.pm-row .pm-sub { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-row .grow { min-width: 0; }
+.pm-row .btn.sm { width: 28px; padding: 0; justify-content: center; border-color: transparent; }
+.pm-zoom { min-width: 54px; height: 26px; border: 0; background: transparent; color: var(--text); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; border-radius: var(--r-sm); }
+.pm-zoom:hover { background: var(--hover); }
+.pm-text { padding: 8px 14px 10px; color: var(--text-2); font-size: var(--fs-md); line-height: 1.5; }
+.pm-pad { padding: 4px 14px 10px; margin: 0; }
 
 /* ---------- 14. Kompakte Dichte ---------- */
 body.density-compact { --toolbar-h: 38px; }
