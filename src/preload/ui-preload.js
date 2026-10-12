@@ -10,14 +10,14 @@ const EVENTS = new Set([
   'adblock:blocked', 'adblock:status', 'dl:update', 'perm:request', 'perm:saved', 'cast:devices', 'cast:sessions', 'cast:ended',
   'cast:pick', 'cast:error', 'ntp:bookmark', 'window-fullscreen',
   'vpn:state', 'crx:tabgroups', 'crx:sidepanel-open', 'crx:sidepanel-close', 'crx:debugger', 'mcp:ui',
-  'popup:blocked', 'device:pick', 'device:update', 'cert:override', 'update:state', 'pw:offer', 'tab:audible'
+  'popup:blocked', 'device:pick', 'device:update', 'cert:override', 'update:state', 'pw:offer', 'tab:audible', 'agent:event'
 ])
 const SENDS = new Set([
   'store:set', 'ui:ready', 'ui:reply', 'ui:titlebar', 'ui:accent', 'ui:peek-wc', 'ui:fullscreen', 'ui:webview',
   'tab:activated', 'tab:back', 'dl:open', 'dl:show', 'dl:control', 'dl:retry', 'perm:respond', 'cast:scan', 'cast:idle', 'cast:control', 'cast:stop',
   'cast:mirror-data', 'cast:mirror-end', 'focus:set',
   'app:default-browser', 'app:relaunch', 'clipboard:write', 'crx:sidepanel-closed',
-  'popup:open', 'update:install', 'pw:offer-reply'
+  'popup:open', 'update:install', 'pw:offer-reply', 'agent:stop', 'agent:reset'
 ])
 const INVOKES = new Set([
   'store:all', 'app:lang', 'tab:screenshot', 'suggest', 'ext:list', 'ext:remove', 'ext:load-unpacked', 'ext:newtab-override',
@@ -28,7 +28,7 @@ const INVOKES = new Set([
   'tab:history', 'tab:prepare-restore', 'tab:save-page', 'app:open-file', 'app:file-url', 'app:pick-folder',
   'private:clear', 'site:clear-data', 'update:state', 'update:check',
   'pw:list', 'pw:reveal', 'pw:delete', 'pw:update', 'pw:never-remove', 'pw:import', 'pw:export',
-  'import:sources', 'import:run'
+  'import:sources', 'import:run', 'agent:status', 'agent:set-key', 'agent:run'
 ])
 
 const sources = {}

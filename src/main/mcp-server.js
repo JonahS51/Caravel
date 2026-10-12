@@ -158,6 +158,9 @@ class McpServer {
     this.server = null
   }
 
+  // Werkzeugliste (auch für den eingebauten Agenten, siehe agent.js)
+  toolList () { return TOOLS }
+
   async handle (req, res) {
     const url = new URL(req.url, 'http://127.0.0.1')
     if (url.pathname !== '/mcp') { res.writeHead(404); return res.end() }

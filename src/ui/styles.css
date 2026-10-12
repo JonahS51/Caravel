@@ -466,6 +466,30 @@ body.html-fullscreen #toolbar, body.html-fullscreen #tabstrip, body.html-fullscr
 .dock-body webview.visible { visibility: visible; }
 .dock-empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 32px; color: var(--text-2); }
 
+/* KI-Agent: Protokoll oben, Auftrag unten */
+.agent-pane { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg-2); }
+.agent-pane[hidden] { display: none; }
+.agent-log { flex: 1; overflow-y: auto; padding: 14px 14px 8px; display: flex; flex-direction: column; gap: 8px; user-select: text; }
+.agent-empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 24px 12px; color: var(--text-2); line-height: 1.5; }
+.agent-empty > .i { width: 28px; height: 28px; color: var(--claude); }
+.ag-user { align-self: flex-end; max-width: 88%; padding: 8px 12px; border-radius: var(--r-md); background: var(--accent-wash); color: var(--text); white-space: pre-wrap; line-height: 1.5; }
+.ag-text { white-space: pre-wrap; line-height: 1.55; color: var(--text); }
+.ag-progress { font-size: var(--fs-sm); color: var(--text-2); font-style: italic; line-height: 1.45; }
+.ag-step { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-2); min-width: 0; }
+.ag-step span:not(.spinner) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-step .i { width: 14px; height: 14px; flex: none; }
+.ag-step.ok .i { color: var(--text-3); }
+.ag-step.fail .i { color: #f87171; }
+.ag-step .spinner { flex: none; }
+.ag-error { display: flex; gap: 8px; align-items: flex-start; font-size: var(--fs-sm); color: #f87171; line-height: 1.45; }
+.ag-error .i { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.ag-working { display: flex; align-items: center; gap: 10px; font-size: var(--fs-sm); color: var(--text-3); padding: 4px 0; }
+.agent-foot { flex: none; border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.agent-input { width: 100%; resize: none; padding: 10px 12px; border-radius: var(--r-md); border: 1px solid var(--line-2); background: var(--elev); outline: none; line-height: 1.5; user-select: text; }
+.agent-input:focus { border-color: var(--accent-ring); box-shadow: 0 0 0 3px var(--accent-wash); }
+.agent-foot select.input.sm { min-width: 0; }
+.agent-setup { padding: 18px 16px; overflow-y: auto; }
+
 /* ---------- 10. Knöpfe & Formulare ---------- */
 .btn {
   height: 32px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap;

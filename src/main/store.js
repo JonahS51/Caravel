@@ -32,6 +32,7 @@ const DEFAULTS = {
     claudeMcp: false,
     claudeMcpPort: 47823,
     claudeMcpToken: '',
+    agentEffort: 'medium', // KI-Agent im Browser: 'low' | 'medium' | 'high'
     // VPN
     vpnMode: 'tor', // 'tor' | 'server'
     vpnCountry: 'auto',

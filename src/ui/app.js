@@ -2980,7 +2980,7 @@ function applyAssistant () {
   $('#btn-claude').innerHTML = `${icon('chat')}<span>${esc(a?.name || T('KI'))}</span>`
   $('#btn-claude').title = T('{ai}-Seitenleiste (Strg+E)', { ai: a?.name || T('KI') })
   $('#dock-send').title = T('Aktuelle Seite an {ai} übergeben', { ai: a?.name || T('die KI') })
-  $('#btn-claude').hidden = !dockEnabled()
+  $('#btn-claude').hidden = !dockEnabled() && !agentEnabled()
   // Assistent gewechselt: alte Seitenleisten-Webview verwerfen
   if (DOCK.claude && DOCK.claudeFor !== settings().assistant) {
     DOCK.claude.remove()
@@ -3024,32 +3024,38 @@ function renderDock () {
   $('#btn-claude').classList.toggle('on', DOCK.open)
   if (!DOCK.open) return
   const panel = currentPanel()
-  if (DOCK.mode !== 'claude' && !panel) DOCK.mode = dockEnabled() ? 'claude' : null
-  if (DOCK.mode === 'claude' && !dockEnabled()) DOCK.mode = panel ? panel.key : null
+  const fallback = () => dockEnabled() ? 'claude' : agentEnabled() ? 'agent' : panel ? panel.key : null
+  if (DOCK.mode === 'claude' && !dockEnabled()) DOCK.mode = fallback()
+  if (DOCK.mode === 'agent' && !agentEnabled()) DOCK.mode = fallback()
+  if (DOCK.mode && DOCK.mode !== 'claude' && DOCK.mode !== 'agent' && DOCK.mode !== panel?.key) DOCK.mode = fallback()
   if (!DOCK.mode) { DOCK.open = false; return renderDock() }
   if (DOCK.mode === 'claude') ensureClaudeWebview()
   const tabs = []
   if (dockEnabled()) tabs.push(`<button data-dock="claude" class="${DOCK.mode === 'claude' ? 'on' : ''}">${icon('chat')} ${esc(assistant().name)}</button>`)
+  if (agentEnabled()) tabs.push(`<button data-dock="agent" class="${DOCK.mode === 'agent' ? 'on' : ''}" title="${T('Claude erledigt Aufgaben direkt in deinen Tabs')}">${icon('agent')} ${T('Agent')}</button>`)
   if (panel) tabs.push(`<button data-dock="${esc(panel.key)}" class="${DOCK.mode === panel.key ? 'on' : ''}">${icon('agent')} ${esc(panel.name)}</button>`)
   $('#dock-tabs').innerHTML = tabs.join('')
   $('#dock-tabs').hidden = tabs.length < 2 && !panel
   for (const wv of $$('#dock-body webview')) wv.classList.remove('visible')
   if (DOCK.mode === 'claude') DOCK.claude.classList.add('visible')
-  else panel?.wv.classList.add('visible')
+  else if (DOCK.mode !== 'agent') panel?.wv.classList.add('visible')
+  agentPane().hidden = DOCK.mode !== 'agent'
+  if (DOCK.mode === 'agent') renderAgent()
   $('#dock-send').hidden = DOCK.mode !== 'claude'
-  $('#dock-new').hidden = DOCK.mode !== 'claude'
+  $('#dock-new').hidden = DOCK.mode !== 'claude' && DOCK.mode !== 'agent'
+  $('#dock-new').title = DOCK.mode === 'agent' ? T('Neue Aufgabe') : T('Neuer Chat')
 }
 
 function toggleDock (force) {
   const open = force ?? !DOCK.open
-  if (open && !dockEnabled() && !currentPanel()) {
+  if (open && !dockEnabled() && !agentEnabled() && !currentPanel()) {
     return toast(assistant() ? T('{ai}-Seitenleiste ist aus', { ai: assistant().name }) : 'Kein KI-Assistent gewählt',
       'Du kannst das unter Einstellungen › KI-Assistent ändern.', 'chat', {
         actions: [{ label: 'Einstellungen', run: () => openSettings('claude') }]
       })
   }
   DOCK.open = open
-  if (open && !DOCK.mode) DOCK.mode = 'claude'
+  if (open && !DOCK.mode) DOCK.mode = dockEnabled() ? 'claude' : 'agent'
   renderDock()
 }
 
@@ -3094,7 +3100,10 @@ function initDock () {
   $('#dock-send').innerHTML = icon('send')
   $('#dock-send').onclick = () => sendPageToClaude('context')
   $('#dock-new').innerHTML = icon('plus')
-  $('#dock-new').onclick = () => { ensureClaudeWebview().loadURL(assistant().url).catch(() => {}) }
+  $('#dock-new').onclick = () => {
+    if (DOCK.mode === 'agent') return resetAgent()
+    ensureClaudeWebview().loadURL(assistant().url).catch(() => {})
+  }
   $('#dock-close').innerHTML = icon('x')
   $('#dock-close').onclick = () => toggleDock(false)
   $('#dock-tabs').onclick = e => {
@@ -3213,6 +3222,169 @@ function sendSelectionToClaude (text, prompt) {
       ? 'Übersetze diesen Ausschnitt aus {src} ins Deutsche (falls er schon deutsch ist, ins Englische):'
       : 'Zu diesem Ausschnitt aus {src}:', { src })
   insertIntoClaude(`${intro}\n\n> ${text.replace(/\n/g, '\n> ')}\n\n`)
+}
+
+/* ---------------------------------------------------------------------
+   KI-Agent: Claude erledigt Aufgaben direkt in den Tabs (Claude-API, siehe main/agent.js)
+   --------------------------------------------------------------------- */
+
+const AGENT = { log: [], running: false, status: null }
+const agentEnabled = () => !!assistant()
+
+// Was der Agent gerade tut – als kurzer Satz für das Protokoll
+const AGENT_TOOLS = {
+  list_tabs: () => T('Sieht sich die offenen Tabs an'),
+  open_tab: i => T('Öffnet {url}', { url: prettyUrl(i.url || '') }),
+  select_tab: i => T('Wechselt zu Tab {n}', { n: i.tab_id }),
+  close_tab: i => T('Schließt Tab {n}', { n: i.tab_id }),
+  navigate: i => i.url ? T('Öffnet {url}', { url: prettyUrl(i.url) }) : T({ back: 'Geht zurück', forward: 'Geht vorwärts', reload: 'Lädt neu' }[i.action] || 'Navigiert'),
+  read_page: () => T('Liest die Seite'),
+  snapshot: () => T('Sieht sich die Bedienelemente an'),
+  click: () => T('Klickt'),
+  fill: i => T('Gibt „{v}“ ein', { v: String(i.value || '').length > 40 ? String(i.value).slice(0, 40) + '…' : String(i.value || '') }),
+  press_key: i => T('Drückt {key}', { key: i.key }),
+  scroll: () => T('Scrollt'),
+  screenshot: () => T('Macht einen Screenshot'),
+  wait_for: () => T('Wartet auf die Seite')
+}
+
+function agentPane () {
+  let pane = $('#agent-pane')
+  if (!pane) {
+    pane = document.createElement('div')
+    pane.id = 'agent-pane'
+    pane.className = 'agent-pane'
+    pane.hidden = true
+    $('#dock-body').append(pane)
+  }
+  return pane
+}
+
+async function renderAgent () {
+  const pane = agentPane()
+  if (!AGENT.status) {
+    try { AGENT.status = await A.invoke('agent:status') } catch { AGENT.status = { hasKey: false } }
+  }
+  if (!AGENT.status.hasKey) return renderAgentSetup(pane)
+  const draft = $('#agent-input', pane)?.value || ''
+  const st = settings()
+  pane.innerHTML = `
+    <div class="agent-log scroll" id="agent-log"></div>
+    <div class="agent-foot">
+      <textarea id="agent-input" class="agent-input" rows="3" placeholder="${T('Was soll Claude in deinen Tabs erledigen? z. B. „Vergleiche die drei günstigsten Flüge nach Lissabon im Mai“')}"></textarea>
+      <div class="flex" style="gap:6px">
+        <select class="input sm" id="agent-effort" title="${T('Gründlichkeit: mehr Gründlichkeit kostet mehr Zeit und Tokens')}">${[['low', 'Schnell'], ['medium', 'Ausgewogen'], ['high', 'Gründlich']].map(([v, l]) => `<option value="${v}" ${(st.agentEffort || 'medium') === v ? 'selected' : ''}>${T(l)}</option>`).join('')}</select>
+        <button class="icon-btn sm" id="agent-key" title="${T('API-Schlüssel ändern')}">${icon('key')}</button>
+        <span class="grow"></span>
+        ${AGENT.running
+          ? `<button class="btn ghost sm" id="agent-stop">${icon('stop')} ${T('Anhalten')}</button>`
+          : `<button class="btn sm" id="agent-go">${icon('send')} ${T('Los')}</button>`}
+      </div>
+    </div>`
+  renderAgentLog()
+  const input = $('#agent-input', pane)
+  input.value = draft
+  input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAgent() } }
+  $('#agent-effort', pane).onchange = e => { st.agentEffort = e.target.value; saveSettingsNow() }
+  $('#agent-key', pane).onclick = () => renderAgentSetup(pane, true)
+  const go = $('#agent-go', pane)
+  if (go) go.onclick = runAgent
+  const stop = $('#agent-stop', pane)
+  if (stop) stop.onclick = () => A.send('agent:stop')
+  if (!AGENT.running) input.focus()
+}
+
+function renderAgentLog () {
+  const box = $('#agent-log')
+  if (!box) return
+  if (!AGENT.log.length) {
+    box.innerHTML = `<div class="agent-empty">${icon('agent')}<div><b>${T('Claude erledigt Aufgaben direkt in deinen Tabs')}</b></div><div class="muted">${T('Claude öffnet Seiten, liest sie, klickt und füllt Formulare aus. Gesteuerte Tabs erhalten ein Roboter-Symbol; vor Käufen, Nachrichten oder Löschungen fragt Claude nach. Der private Space bleibt tabu.')}</div></div>`
+    return
+  }
+  box.innerHTML = AGENT.log.map(e => {
+    if (e.kind === 'user') return `<div class="ag-user">${esc(e.text)}</div>`
+    if (e.kind === 'text') return `<div class="ag-text">${esc(e.text)}</div>`
+    if (e.kind === 'progress') return `<div class="ag-progress">${esc(e.text)}</div>`
+    if (e.kind === 'error') return `<div class="ag-error">${icon('warning')}<span>${esc(e.text)}</span></div>`
+    if (e.kind === 'tool') return `<div class="ag-step ${e.ok === false ? 'fail' : e.ok ? 'ok' : 'busy'}" title="${esc(e.summary || '')}">${e.ok === undefined ? '<span class="spinner"></span>' : icon(e.ok ? 'check' : 'x')}<span>${esc(e.text)}</span></div>`
+    return ''
+  }).join('') + (AGENT.running ? `<div class="ag-working"><span class="pulse"></span> ${T('Claude arbeitet …')}</div>` : '')
+  box.scrollTop = box.scrollHeight
+}
+
+function renderAgentSetup (pane, change = false) {
+  pane.innerHTML = `<div class="agent-setup">
+    <div class="agent-empty" style="position:static;padding:8px 0 16px">${icon('agent')}<div><b>${T('Agent einrichten')}</b></div></div>
+    <p class="muted" style="line-height:1.55;margin-top:0">${T('Der Agent nutzt die Claude-API von Anthropic (Modell Claude Opus 5.5) und wird nach Verbrauch abgerechnet – unabhängig von einem claude.ai-Abo. Den Schlüssel erstellst du in der Claude Console. Er wird mit deinem Windows-Konto verschlüsselt und nur an api.anthropic.com gesendet.')}</p>
+    <div class="field"><label>${T('API-Schlüssel')}</label><input class="input" id="agent-keyinput" type="password" placeholder="sk-ant-…" spellcheck="false" autocomplete="off"></div>
+    <div class="flex" style="gap:8px;margin-top:10px">
+      <button class="btn ghost sm" id="agent-console">${icon('external')} ${T('Claude Console öffnen')}</button><span class="grow"></span>
+      ${change ? `<button class="btn ghost sm" id="agent-keydel">${T('Entfernen')}</button><button class="btn ghost sm" id="agent-keycancel">${T('Abbrechen')}</button>` : ''}
+      <button class="btn sm" id="agent-keysave">${T('Speichern')}</button>
+    </div></div>`
+  const input = $('#agent-keyinput', pane)
+  input.focus()
+  const saveKey = async value => {
+    try {
+      await A.invoke('agent:set-key', value)
+      AGENT.status = null
+      renderAgent()
+    } catch (err) { toast('Speichern fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, ''), 'warning') }
+  }
+  $('#agent-keysave', pane).onclick = () => { if (input.value.trim()) saveKey(input.value) }
+  input.onkeydown = e => { if (e.key === 'Enter' && input.value.trim()) saveKey(input.value) }
+  $('#agent-console', pane).onclick = () => createTab({ url: 'https://platform.claude.com/settings/keys', spaceId: normalSpaceId() })
+  const del = $('#agent-keydel', pane)
+  if (del) del.onclick = () => saveKey('')
+  const cancel = $('#agent-keycancel', pane)
+  if (cancel) cancel.onclick = () => renderAgent()
+}
+
+async function runAgent () {
+  const input = $('#agent-input')
+  const task = input?.value.trim()
+  if (!task || AGENT.running) return
+  input.value = ''
+  AGENT.log.push({ kind: 'user', text: task })
+  AGENT.running = true
+  renderAgent()
+  try { await A.invoke('agent:run', task) } catch (err) {
+    AGENT.running = false
+    AGENT.log.push({ kind: 'error', text: String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, '') })
+    renderAgent()
+  }
+}
+
+function resetAgent () {
+  A.send('agent:reset')
+  AGENT.log = []
+  AGENT.running = false
+  renderAgent()
+}
+
+function onAgentEvent (ev) {
+  if (ev.type === 'text') AGENT.log.push({ kind: 'text', text: ev.text })
+  else if (ev.type === 'progress') AGENT.log.push({ kind: 'progress', text: ev.text })
+  else if (ev.type === 'tool') AGENT.log.push({ kind: 'tool', name: ev.name, text: (AGENT_TOOLS[ev.name] || (() => ev.name))(ev.input || {}) })
+  else if (ev.type === 'tool-result') {
+    const step = [...AGENT.log].reverse().find(e => e.kind === 'tool' && e.ok === undefined && e.name === ev.name)
+    if (step) Object.assign(step, { ok: ev.ok, summary: ev.summary })
+  } else if (ev.type === 'error') {
+    AGENT.log.push({ kind: 'error', text: ev.message })
+    if (ev.keyProblem) AGENT.status = null
+  } else if (ev.type === 'stopped') AGENT.log.push({ kind: 'error', text: T('Angehalten.') })
+  else if (ev.type === 'done') {
+    AGENT.running = false
+    // Fertig, während die Seitenleiste zu ist: kurz Bescheid geben
+    if (!(DOCK.open && DOCK.mode === 'agent')) {
+      const answer = [...AGENT.log].reverse().find(e => e.kind === 'text')
+      toast('Agent fertig', answer ? answer.text.slice(0, 140) : '', 'agent', { actions: [{ label: 'Anzeigen', run: () => { DOCK.mode = 'agent'; toggleDock(true) } }], duration: 8000 })
+    }
+  }
+  if (DOCK.open && DOCK.mode === 'agent') {
+    if (ev.type === 'done' || ev.type === 'start') renderAgent()
+    else renderAgentLog()
+  }
 }
 
 /* ---------------------------------------------------------------------
@@ -4551,6 +4723,7 @@ function initGlobalEvents () {
   A.on('ntp:bookmark', handleNtpBookmark)
   A.on('cast:error', msg => toast('Streamen fehlgeschlagen', msg, 'warning', { duration: 7000 }))
   A.on('window-fullscreen', on => { S.windowFull = on })
+  A.on('agent:event', onAgentEvent)
 }
 
 function startSleepTimer () {

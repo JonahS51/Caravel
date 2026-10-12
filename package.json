@@ -14,6 +14,7 @@
     "release": "node scripts/fetch-vendor.js && electron scripts/make-assets.js && electron-builder --win nsis --publish always"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@ghostery/adblocker-electron": "^2.18.2",
     "@mozilla/readability": "^0.6.0",
     "castv2": "^0.1.10",

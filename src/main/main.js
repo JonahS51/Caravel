@@ -18,6 +18,7 @@ const { CastManager } = require('./cast')
 const { VpnManager } = require('./vpn')
 const { CrxCompat } = require('./crx-compat')
 const { McpServer } = require('./mcp-server')
+const { BrowserAgent, MODEL: AGENT_MODEL } = require('./agent')
 const { Updater } = require('./updater')
 const { PasswordStore } = require('./passwords')
 const importer = require('./importer')
@@ -60,6 +61,7 @@ let vpn = null
 let crx = null
 let mcp = null
 let mcpError = null
+let agent = null
 let tabsSession = null
 let privateSession = null
 let updater = null
@@ -1175,6 +1177,19 @@ function registerIpc () {
   })
   ipcMain.on('app:relaunch', () => { app.relaunch(); app.quit() })
 
+  // KI-Agent im Browser (Claude-API, siehe agent.js)
+  ipcMain.handle('agent:status', () => ({ hasKey: agent.hasKey(), model: AGENT_MODEL, running: !!agent.running, turns: agent.messages.length }))
+  ipcMain.handle('agent:set-key', (_e, key) => agent.setKey(key))
+  ipcMain.handle('agent:run', (_e, task) => {
+    if (!assistantName(store.get('settings'))) throw new Error(t('Es ist kein KI-Assistent gewählt.'))
+    const wc = uiActiveWcId && webContents.fromId(uiActiveWcId)
+    const context = wc && !wc.isDestroyed() && !isPrivate(wc) ? { title: wc.getTitle(), url: wc.getURL() } : null
+    agent.run(String(task || '').slice(0, 20000), context).catch(err => send('agent:event', { type: 'error', message: err.message }))
+    return true
+  })
+  ipcMain.on('agent:stop', () => agent.stop())
+  ipcMain.on('agent:reset', () => agent.reset())
+
   // VPN
   ipcMain.handle('vpn:state', () => ({ ...vpn.state, countries: VpnManager.countries() }))
   ipcMain.handle('vpn:connect', () => vpn.connect(vpnConfigFromSettings()))
@@ -1439,6 +1454,12 @@ function setupMcp () {
     readabilitySource: () => fs.readFileSync(require.resolve('@mozilla/readability/Readability.js'), 'utf8'),
     turndownSource: () => fs.readFileSync(require.resolve('turndown/dist/turndown.js'), 'utf8')
   })
+  agent = new BrowserAgent({
+    mcp,
+    send: ev => send('agent:event', ev),
+    getSettings: () => store.get('settings'),
+    dataDir: app.getPath('userData')
+  })
 }
 
 function syncMcp (s) {
@@ -1595,6 +1616,7 @@ app.on('before-quit', () => {
   cast?.dispose()
   vpn?.dispose()
   mcp?.stop()
+  agent?.stop()
 })
 
 app.on('window-all-closed', () => app.quit())
