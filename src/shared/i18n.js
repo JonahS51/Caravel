@@ -902,6 +902,25 @@
     'Unbekannte Quelle': 'Unknown source',
     'Der Verlauf ist gesperrt – bitte den Browser schließen und erneut versuchen.': 'The history is locked – please close the browser and try again.',
 
+    // ---- Leseliste -------------------------------------------------------------
+    'Leseliste': 'Reading list',
+    'Leseliste anzeigen': 'Show reading list',
+    'Zur Leseliste hinzufügen': 'Add to reading list',
+    'Zur Leseliste hinzufügen (offline lesbar)': 'Add to reading list (readable offline)',
+    'Original öffnen': 'Open original',
+    'Schon auf der Leseliste': 'Already on the reading list',
+    'Zur Leseliste hinzugefügt': 'Added to reading list',
+    '„{title}“ ist jetzt auch offline lesbar.': '“{title}” can now be read offline too.',
+    'Artikel nicht gefunden': 'Article not found',
+    'Die gespeicherte Fassung fehlt – öffne das Original.': 'The saved copy is missing – open the original.',
+    'Artikel in der Leser-Fassung samt Bildern – auch ohne Internet lesbar. Speichern über das Lesezeichen-Symbol im Leser-Modus oder per Rechtsklick auf eine Seite.': 'Articles in reader view including images – readable even without internet. Save them via the bookmark icon in reader mode or by right-clicking a page.',
+    'Aktuelle Seite speichern': 'Save current page',
+    'Die Leseliste ist leer': 'The reading list is empty',
+    'Ungelesen': 'Unread',
+    'Gelesen': 'Read',
+    'Als ungelesen markieren': 'Mark as unread',
+    'Als gelesen markieren': 'Mark as read',
+
     // ---- Screenshot ------------------------------------------------------------
     'Bereich aufziehen': 'Drag to select an area',
     'Sichtbarer Bereich': 'Visible area',

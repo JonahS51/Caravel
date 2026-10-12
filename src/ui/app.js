@@ -2045,6 +2045,7 @@ function appMenu () {
     { label: 'Seiten-Notizen', icon: 'note', run: () => togglePanel('notes') },
     { label: 'Zeitkapseln', icon: 'archive', run: () => togglePanel('snapshots') },
     { label: 'Tab-Archiv', icon: 'tray', run: () => togglePanel('archive') },
+    { label: 'Leseliste', icon: 'readlater', run: () => togglePanel('reading') },
     { label: 'Erweiterungen', icon: 'puzzle', run: () => togglePanel('extensions') },
     { label: 'Passwörter', icon: 'key', run: () => openSettings('passwords') },
     '-',
@@ -2067,7 +2068,7 @@ function appMenu () {
    Seitenpanel
    --------------------------------------------------------------------- */
 
-const PANEL_TITLES = { history: 'Verlauf', downloads: 'Downloads', notes: 'Seiten-Notizen', snapshots: 'Zeitkapseln', extensions: 'Erweiterungen', archive: 'Tab-Archiv' }
+const PANEL_TITLES = { history: 'Verlauf', downloads: 'Downloads', notes: 'Seiten-Notizen', snapshots: 'Zeitkapseln', extensions: 'Erweiterungen', archive: 'Tab-Archiv', reading: 'Leseliste' }
 
 function togglePanel (name) {
   if (S.panel === name) return closePanel()
@@ -2085,7 +2086,7 @@ function closePanel () {
 
 function renderPanel () {
   const body = $('#panel-body')
-  const fn = { history: renderHistory, downloads: renderDownloads, notes: renderNotes, snapshots: renderSnapshots, extensions: renderExtensions, archive: renderArchive }[S.panel]
+  const fn = { history: renderHistory, downloads: renderDownloads, notes: renderNotes, snapshots: renderSnapshots, extensions: renderExtensions, archive: renderArchive, reading: renderReadingList }[S.panel]
   if (fn) fn(body)
 }
 
@@ -2404,6 +2405,8 @@ function commands () {
     { title: 'Zeitkapsel dieses Spaces speichern', icon: 'archive', run: () => saveSnapshot() },
     { title: 'Tab-Archiv anzeigen', icon: 'tray', run: () => togglePanel('archive') },
     { title: 'Tab archivieren', icon: 'tray', run: () => t && archiveTab(t) },
+    { title: 'Zur Leseliste hinzufügen', icon: 'readlater', run: () => readLater(t) },
+    { title: 'Leseliste anzeigen', icon: 'readlater', run: () => togglePanel('reading') },
     { title: 'Verlauf anzeigen', icon: 'history', hint: 'Strg+H', run: () => togglePanel('history') },
     { title: 'Downloads anzeigen', icon: 'download', hint: 'Strg+J', run: () => togglePanel('downloads') },
     { title: 'Seiten-Notizen', icon: 'note', hint: 'Strg+Umschalt+U', run: () => togglePanel('notes') },
@@ -2569,22 +2572,37 @@ function initPeek () {
    Leser-Modus (mit Vorlesefunktion)
    --------------------------------------------------------------------- */
 
-async function toggleReader () {
-  if (S.reader) return closeReader()
-  const tab = activeTab()
-  if (!tab?.ready || !/^https?:/.test(tab.url)) return
-  let art = null
+// Artikel der Seite mit Readability erkennen; Bildadressen absolut machen (für die Offline-Leseliste)
+async function extractArticle (tab) {
+  if (!tab?.ready || !/^https?:/.test(tab.url)) return null
   try {
-    art = await tab.webview.executeJavaScript(`(function () {
+    const art = await tab.webview.executeJavaScript(`(function () {
       ${A.readabilitySource()}
       try {
         var doc = document.cloneNode(true);
         var r = new Readability(doc, { charThreshold: 250 }).parse();
-        return r ? { title: r.title, byline: r.byline, siteName: r.siteName, content: r.content, text: r.textContent, lang: document.documentElement.lang || '' } : null;
+        if (!r) return null;
+        var d = new DOMParser().parseFromString(r.content, 'text/html');
+        d.querySelectorAll('picture source').forEach(function (s) { s.remove(); });
+        d.querySelectorAll('img').forEach(function (img) {
+          var src = img.getAttribute('src') || img.getAttribute('data-src') || '';
+          try { if (src) img.setAttribute('src', new URL(src, location.href).href); } catch (e) {}
+          img.removeAttribute('srcset'); img.removeAttribute('loading');
+        });
+        d.querySelectorAll('a[href]').forEach(function (a) { try { a.setAttribute('href', new URL(a.getAttribute('href'), location.href).href); } catch (e) {} });
+        return { title: r.title, byline: r.byline, siteName: r.siteName, content: d.body.innerHTML, text: r.textContent, lang: document.documentElement.lang || '' };
       } catch (e) { return null; }
     })()`)
-  } catch { art = null }
-  if (!art || !art.content) return toast('Leser-Modus nicht verfügbar', 'Auf dieser Seite wurde kein Artikel erkannt.', 'reader')
+    return art?.content ? art : null
+  } catch { return null }
+}
+
+async function toggleReader () {
+  if (S.reader) return closeReader()
+  const tab = activeTab()
+  if (!tab?.ready || !/^https?:/.test(tab.url)) return
+  const art = await extractArticle(tab)
+  if (!art) return toast('Leser-Modus nicht verfügbar', 'Auf dieser Seite wurde kein Artikel erkannt.', 'reader')
   const st = settings()
   S.reader = { art, tabId: tab.id, size: st.readerSize || 19, font: st.readerFont || 'serif', theme: st.readerTheme || (isDark() ? 'dark' : 'light'), speaking: false }
   renderReader()
@@ -2627,6 +2645,9 @@ function renderReader () {
   box.innerHTML = `<div class="reader-bar">
       <button class="icon-btn sm" data-r="close" title="${T('Leser-Modus verlassen (Esc)')}">${icon('x')}</button>
       <span class="rb-title">${esc(r.art.title)}</span>
+      ${r.offline
+        ? `<button class="icon-btn sm" data-r="original" title="${T('Original öffnen')}">${icon('external')}</button>`
+        : `<button class="icon-btn sm ${S.data.readingList.some(i => i.url === activeTab()?.url) ? 'on' : ''}" data-r="later" title="${T('Zur Leseliste hinzufügen (offline lesbar)')}">${icon('readlater')}</button>`}
       <button class="icon-btn sm ${r.speaking ? 'on' : ''}" data-r="speak" title="${T('Vorlesen')}">${icon(r.speaking ? 'pause' : 'speak')}</button>
       <span class="rb-sep"></span>
       <button class="icon-btn sm" data-r="smaller" title="${T('Kleiner')}">${icon('minus')}</button>
@@ -2647,6 +2668,8 @@ function renderReader () {
     const st = settings()
     if (a === 'close') return closeReader()
     if (a === 'speak') return toggleSpeak()
+    if (a === 'later') return readLater(activeTab(), r.art)
+    if (a === 'original') { const url = r.offline.url; closeReader(); return createTab({ url }) }
     if (a === 'smaller') r.size = Math.max(14, r.size - 1)
     if (a === 'bigger') r.size = Math.min(30, r.size + 1)
     if (a === 'font') r.font = r.font === 'serif' ? 'sans' : 'serif'
@@ -2689,6 +2712,79 @@ function closeReader () {
   $('#reader').hidden = true
   $('#reader').innerHTML = ''
   updateNav()
+}
+
+/* ---------------------------------------------------------------------
+   Leseliste: Artikel samt Bildern offline speichern (main/readinglist.js)
+   --------------------------------------------------------------------- */
+
+async function readLater (tab = activeTab(), art = null) {
+  if (!tab || isPrivateTab(tab) || !/^https?:/.test(tab.url)) return toast('Nicht möglich', 'Öffne zuerst eine Website.', 'readlater')
+  if (S.data.readingList.some(i => i.url === tab.url)) return toast('Schon auf der Leseliste', tab.title, 'readlater', { actions: [{ label: 'Anzeigen', run: () => togglePanel('reading') }] })
+  art = art || await extractArticle(tab)
+  if (!art) return toast('Nicht möglich', 'Auf dieser Seite wurde kein Artikel erkannt.', 'readlater')
+  let saved
+  try { saved = await A.invoke('reading:save', art) } catch (err) { return toast('Speichern fehlgeschlagen', String(err.message || err), 'warning') }
+  const words = (art.text || '').trim().split(/\s+/).length
+  S.data.readingList.unshift({ id: saved.id, url: tab.url, title: art.title || tab.title, siteName: art.siteName || hostOf(tab.url), favicon: tab.favicon, minutes: Math.max(1, Math.round(words / 220)), added: Date.now(), read: false })
+  save('readingList')
+  toast('Zur Leseliste hinzugefügt', T('„{title}“ ist jetzt auch offline lesbar.', { title: art.title || tab.title }), 'readlater', { actions: [{ label: 'Anzeigen', run: () => togglePanel('reading') }] })
+  if (S.panel === 'reading') renderPanel()
+  if (S.reader) renderReader()
+}
+
+async function openReadingItem (item) {
+  const art = await A.invoke('reading:get', item.id).catch(() => null)
+  if (!art) return toast('Artikel nicht gefunden', 'Die gespeicherte Fassung fehlt – öffne das Original.', 'warning', { actions: [{ label: 'Original öffnen', run: () => createTab({ url: item.url }) }] })
+  closeReader()
+  const st = settings()
+  S.reader = { art: { ...art, siteName: art.siteName || item.siteName || hostOf(item.url) }, tabId: activeTab()?.id, offline: item, size: st.readerSize || 19, font: st.readerFont || 'serif', theme: st.readerTheme || (isDark() ? 'dark' : 'light'), speaking: false }
+  renderReader()
+  if (!item.read) { item.read = true; save('readingList'); if (S.panel === 'reading') renderPanel() }
+}
+
+function removeReadingItem (item) {
+  S.data.readingList = S.data.readingList.filter(i => i !== item)
+  save('readingList')
+  A.send('reading:remove', item.id)
+  if (S.reader?.offline === item) closeReader()
+  if (S.panel === 'reading') renderPanel()
+}
+
+function renderReadingList (body) {
+  body.innerHTML = ''
+  body.insertAdjacentHTML('beforeend', `<p class="panel-note">${T('Artikel in der Leser-Fassung samt Bildern – auch ohne Internet lesbar. Speichern über das Lesezeichen-Symbol im Leser-Modus oder per Rechtsklick auf eine Seite.')}</p>`)
+  const t = activeTab()
+  if (t && /^https?:/.test(t.url) && !isPrivateTab(t) && !S.data.readingList.some(i => i.url === t.url)) {
+    const btn = document.createElement('button')
+    btn.className = 'btn block'
+    btn.innerHTML = `${icon('readlater')} ${T('Aktuelle Seite speichern')}`
+    btn.onclick = () => readLater(t)
+    body.append(btn)
+  }
+  if (!S.data.readingList.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('readlater')}<div>${T('Die Leseliste ist leer')}</div></div>`); return }
+  const groups = [[T('Ungelesen'), S.data.readingList.filter(i => !i.read)], [T('Gelesen'), S.data.readingList.filter(i => i.read)]]
+  for (const [label, items] of groups) {
+    if (!items.length) continue
+    body.insertAdjacentHTML('beforeend', `<div class="group-title">${esc(label)}</div>`)
+    for (const item of items) {
+      const row = rowEl({
+        url: item.url,
+        favicon: item.favicon,
+        title: item.title,
+        sub: `${item.siteName} · ${T('{n} Min. Lesezeit', { n: item.minutes })}`,
+        time: timeAgo(item.added),
+        onClick: () => openReadingItem(item),
+        actions: [
+          { icon: 'external', title: 'Original öffnen', run: () => createTab({ url: item.url }) },
+          { icon: 'check', title: item.read ? 'Als ungelesen markieren' : 'Als gelesen markieren', run: () => { item.read = !item.read; save('readingList'); renderPanel() } },
+          { icon: 'trash', title: 'Entfernen', run: () => removeReadingItem(item) }
+        ]
+      })
+      if (item.read) row.classList.add('is-read')
+      body.append(row)
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------
@@ -4895,6 +4991,7 @@ function initGlobalEvents () {
     if (action === 'translate') openTranslatePopover()
     if (action === 'save-page') savePage()
     if (action === 'boost-pick') pickElement(t)
+    if (action === 'read-later') readLater(t)
   })
   A.on('ext:create-tab', async ({ reqId, url, active }) => {
     const t = createTab({ url: url || NEWTAB, background: !active, spaceId: normalSpaceId() })

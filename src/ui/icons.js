@@ -78,6 +78,7 @@ window.ICONS = {
   importIcon: '<path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
   tray: '<path d="M3 13.5l2.6-7.7A1.5 1.5 0 0 1 7 4.8h10a1.5 1.5 0 0 1 1.4 1l2.6 7.7"/><path d="M3 13.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4.5h-5.5l-1.5 2.5h-4l-1.5-2.5z"/>',
+  readlater: '<path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4.5L5 21V4.5a1 1 0 0 1 1-1z"/><path d="M9 8.5h6M9 11.5h4"/>',
   usb: '<path d="M12 3v14M9 6l3-3 3 3M7 10v2l5 3M17 9v2l-5 3"/><circle cx="12" cy="19" r="2"/>'
 }
 

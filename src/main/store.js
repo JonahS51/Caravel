@@ -64,6 +64,7 @@ const DEFAULTS = {
   history: [],
   archive: [], // archivierte Tabs { id, url, title, favicon, spaceId, spaceName, archived, nav }
   notes: {},
+  readingList: [], // { id, url, title, siteName, minutes, added, read } – Inhalt in ReadingList/<id>.json
   snapshots: [],
   permissions: {},
   // Einstellungen pro Website (Hostname): { zoom, popups: 'allow'|'block', sound: 'mute' }

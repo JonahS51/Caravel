@@ -21,6 +21,7 @@ const { McpServer } = require('./mcp-server')
 const { BrowserAgent, MODEL: AGENT_MODEL } = require('./agent')
 const { Boosts } = require('./boosts')
 const { FullText } = require('./fulltext')
+const { ReadingList } = require('./readinglist')
 const { Updater } = require('./updater')
 const { PasswordStore } = require('./passwords')
 const importer = require('./importer')
@@ -66,6 +67,7 @@ let mcpError = null
 let agent = null
 let boosts = null
 let fulltext = null
+let reading = null
 let tabsSession = null
 let privateSession = null
 let updater = null
@@ -433,6 +435,7 @@ function showContextMenu (wc, params) {
     items.push({ label: t('Drucken …'), click: () => wc.print() })
     items.push({ label: t('Seite als Markdown kopieren'), click: action('markdown') })
     items.push({ label: t('Leser-Modus'), click: action('reader') })
+    if (!isPrivate(wc) && /^https?:/.test(wc.getURL())) items.push({ label: t('Zur Leseliste hinzufügen'), click: action('read-later') })
     items.push({ label: t('Screenshot aufnehmen'), click: action('screenshot') })
     items.push({ label: t('Streamen …'), click: action('cast') })
     items.push({ label: t('Seitenquelltext anzeigen'), click: () => send('open-tab', { url: 'caravel://source/?url=' + encodeURIComponent(wc.getURL()), opener: wc.id }) })
@@ -1205,6 +1208,11 @@ function registerIpc () {
     return boosts.pick(wc, t('Element anklicken, das ausgeblendet werden soll · Esc bricht ab'))
   })
 
+  // Leseliste: Artikel offline speichern (readinglist.js)
+  ipcMain.handle('reading:save', (_e, art) => reading.save(art || {}))
+  ipcMain.handle('reading:get', (_e, id) => reading.get(String(id)))
+  ipcMain.on('reading:remove', (_e, id) => { try { reading.remove(String(id)) } catch {} })
+
   // Volltextsuche im Verlauf (fulltext.js) – nie im privaten Space
   ipcMain.on('fulltext:index', (_e, wcId, url) => {
     if (store.get('settings').fullTextIndex === false) return
@@ -1597,6 +1605,7 @@ app.whenReady().then(async () => {
   if (store.fresh) store.set('spaces', store.get('spaces').map(sp => ({ ...sp, name: t(sp.name) })))
   tabsSession = session.fromPartition(PARTITION)
   privateSession = session.fromPartition(PRIVATE_PARTITION)
+  reading = new ReadingList(app.getPath('userData'), tabsSession)
 
   const ua = cleanUserAgent(tabsSession.getUserAgent())
   app.userAgentFallback = ua
