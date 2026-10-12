@@ -6,8 +6,11 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { safeStorage } = require('electron')
-const Anthropic = require('@anthropic-ai/sdk').default
 const { t } = require('../shared/i18n')
+
+// Das SDK erst beim ersten Auftrag laden (kostet beim Start sonst ~200 ms)
+let sdk = null
+const anthropic = () => (sdk ??= require('@anthropic-ai/sdk').default)
 
 const MODEL = 'claude-opus-5-5'
 const MAX_STEPS = 40
@@ -89,7 +92,7 @@ class BrowserAgent {
     const apiKey = this.readKey()
     if (!apiKey) throw new Error(t('Kein API-Schlüssel hinterlegt.'))
     const s = this.getSettings()
-    const client = new Anthropic({ apiKey })
+    const client = new (anthropic())({ apiKey })
     const abort = new AbortController()
     this.running = abort
     const emit = ev => this.send({ ...ev })
@@ -164,8 +167,8 @@ class BrowserAgent {
       // sonst hinge ein tool_use ohne tool_result im Verlauf
       const last = this.messages.at(-1)
       if (last?.role === 'user' && typeof last.content === 'string') this.messages.pop()
-      if (abort.signal.aborted || err instanceof Anthropic.APIUserAbortError) emit({ type: 'stopped' })
-      else emit({ type: 'error', message: BrowserAgent.errorText(err), keyProblem: err instanceof Anthropic.AuthenticationError })
+      if (abort.signal.aborted || err instanceof anthropic().APIUserAbortError) emit({ type: 'stopped' })
+      else emit({ type: 'error', message: BrowserAgent.errorText(err), keyProblem: err instanceof anthropic().AuthenticationError })
     } finally {
       if (this.running === abort) this.running = null
       emit({ type: 'done' })
@@ -173,11 +176,11 @@ class BrowserAgent {
   }
 
   static errorText (err) {
-    if (err instanceof Anthropic.AuthenticationError) return t('Der API-Schlüssel ist ungültig.')
-    if (err instanceof Anthropic.PermissionDeniedError) return t('Der API-Schlüssel hat keinen Zugriff auf dieses Modell.')
-    if (err instanceof Anthropic.RateLimitError) return t('Zu viele Anfragen – bitte kurz warten.')
-    if (err instanceof Anthropic.APIConnectionError) return t('Keine Verbindung zur Claude-API.')
-    if (err instanceof Anthropic.APIError) return t('API-Fehler {status}: {message}', { status: err.status ?? '', message: err.message })
+    if (err instanceof anthropic().AuthenticationError) return t('Der API-Schlüssel ist ungültig.')
+    if (err instanceof anthropic().PermissionDeniedError) return t('Der API-Schlüssel hat keinen Zugriff auf dieses Modell.')
+    if (err instanceof anthropic().RateLimitError) return t('Zu viele Anfragen – bitte kurz warten.')
+    if (err instanceof anthropic().APIConnectionError) return t('Keine Verbindung zur Claude-API.')
+    if (err instanceof anthropic().APIError) return t('API-Fehler {status}: {message}', { status: err.status ?? '', message: err.message })
     return err.message || String(err)
   }
 }

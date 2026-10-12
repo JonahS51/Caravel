@@ -15,10 +15,15 @@ class Updater {
     this.getSettings = getSettings
     this.state = { status: 'idle', version: null, progress: 0, error: null, checked: 0, supported: app.isPackaged }
     this.timer = null
-    this.au = null
-    if (!app.isPackaged) return
+    this.loaded = null
+  }
+
+  // electron-updater erst bei der ersten Prüfung laden (kostet beim Start sonst ~200 ms)
+  get au () {
+    if (!app.isPackaged) return null
+    if (this.loaded) return this.loaded
     const { autoUpdater } = require('electron-updater')
-    this.au = autoUpdater
+    this.loaded = autoUpdater
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.allowPrerelease = false
@@ -29,6 +34,7 @@ class Updater {
     autoUpdater.on('download-progress', p => this.set({ progress: Math.round(p.percent || 0) }))
     autoUpdater.on('update-downloaded', info => this.set({ status: 'ready', version: info.version, progress: 100, checked: Date.now() }))
     autoUpdater.on('error', err => this.set({ status: 'error', error: this.describe(err) }))
+    return autoUpdater
   }
 
   describe (err) {
@@ -44,7 +50,7 @@ class Updater {
   }
 
   start () {
-    if (!this.au) return
+    if (!app.isPackaged) return
     clearInterval(this.timer)
     this.timer = setInterval(() => { if (this.getSettings().autoUpdate !== false) this.check() }, CHECK_EVERY)
     if (this.getSettings().autoUpdate !== false) setTimeout(() => this.check(), 15000)
@@ -62,7 +68,7 @@ class Updater {
 
   install () {
     // still installieren (ohne Installer-Assistent) und Caravel danach wieder starten
-    if (this.au && this.state.status === 'ready') this.au.quitAndInstall(true, true)
+    if (this.loaded && this.state.status === 'ready') this.loaded.quitAndInstall(true, true)
   }
 }
 

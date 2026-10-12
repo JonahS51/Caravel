@@ -60,9 +60,11 @@ const settings = () => S.data.settings
    --------------------------------------------------------------------- */
 
 const saveTimers = {}
+// Große, oft geänderte Daten seltener übertragen (beim Beenden schreibt flushPending alles sofort)
+const SAVE_DELAY = { history: 2500, archive: 1500 }
 function save (key) {
   clearTimeout(saveTimers[key])
-  saveTimers[key] = setTimeout(() => A.send('store:set', key, S.data[key]), 400)
+  saveTimers[key] = setTimeout(() => { delete saveTimers[key]; A.send('store:set', key, S.data[key]) }, SAVE_DELAY[key] || 400)
 }
 
 function hostOf (url) {
@@ -112,12 +114,6 @@ function faviconEl (favicon, url, size = 16) {
 
 function safeFavicon (src) {
   return typeof src === 'string' && /^(https?:|data:image\/)/i.test(src) ? src : null
-}
-
-function faviconHtml (favicon, url) {
-  const wrap = document.createElement('span')
-  wrap.append(faviconEl(favicon, url))
-  return wrap
 }
 
 const canvasCtx = document.createElement('canvas').getContext('2d')
@@ -583,35 +579,25 @@ function autoArchive () {
 }
 
 function renderArchive (body) {
-  const q = body.querySelector('.panel-search')?.value || ''
-  body.innerHTML = ''
+  const q = panelSearch(body, 'Archiv durchsuchen …', renderArchive)
   const hours = +settings().archiveHours
   body.insertAdjacentHTML('beforeend', `<p class="panel-note">${hours
     ? T('Tabs, die du {time} nicht benutzt hast, landen automatisch hier – mit Verlauf. Ein Klick holt sie zurück.', { time: archiveLabel(hours) })
     : T('Archivierte Tabs bleiben mit ihrem Verlauf erhalten. Automatisches Archivieren lässt sich unter Einstellungen › Leistung einschalten.')}</p>`)
-  const search = document.createElement('input')
-  search.className = 'panel-search'
-  search.placeholder = T('Archiv durchsuchen …')
-  search.value = q
-  search.oninput = () => { renderArchive(body); const s = body.querySelector('.panel-search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length) }
-  body.append(search)
   const ql = q.toLowerCase()
-  const list = S.data.archive.filter(e => !ql || (e.title + ' ' + e.url).toLowerCase().includes(ql))
-  if (!list.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('tray')}<div>${q ? T('Keine Treffer') : T('Das Archiv ist leer')}</div></div>`); return }
+  const all = ql ? S.data.archive.filter(e => (e.title + ' ' + e.url).toLowerCase().includes(ql)) : S.data.archive
+  if (!all.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('tray')}<div>${q ? T('Keine Treffer') : T('Das Archiv ist leer')}</div></div>`); return }
+  const list = all.slice(0, +body.dataset.limit || PAGE)
   let last = ''
-  const today = new Date().toDateString()
-  const yesterday = new Date(Date.now() - 86400000).toDateString()
   for (const e of list) {
-    const d = new Date(e.archived)
-    const ds = d.toDateString()
-    const label = ds === today ? T('Heute') : ds === yesterday ? T('Gestern') : d.toLocaleDateString(I18N.locale, { weekday: 'long', day: 'numeric', month: 'long' })
+    const label = dayLabel(e.archived)
     if (label !== last) { body.insertAdjacentHTML('beforeend', `<div class="group-title">${esc(label)}</div>`); last = label }
     body.append(rowEl({
       url: e.url,
       favicon: e.favicon,
       title: e.title || e.url,
       sub: [hostOf(e.url), e.spaceName].filter(Boolean).join(' · '),
-      time: d.toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }),
+      time: new Date(e.archived).toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }),
       onClick: () => restoreArchived(e),
       actions: [
         { icon: 'eye', title: 'Peek', run: () => openPeek(e.url) },
@@ -619,12 +605,18 @@ function renderArchive (body) {
       ]
     }))
   }
-  const clear = document.createElement('button')
-  clear.className = 'btn ghost block'
-  clear.style.marginTop = '14px'
-  clear.innerHTML = `${icon('trash')} ${T('Archiv leeren')}`
-  clear.onclick = () => confirmDialog('Archiv leeren?', 'Alle archivierten Tabs werden endgültig entfernt.', 'Leeren', () => { S.data.archive = []; save('archive'); renderPanel() })
-  body.append(clear)
+  moreButton(body, all.length, list.length, renderArchive)
+  clearAllButton(body, 'Archiv leeren', () => confirmDialog('Archiv leeren?', 'Alle archivierten Tabs werden endgültig entfernt.', 'Leeren', () => { S.data.archive = []; save('archive'); renderPanel() }))
+}
+
+// „Alles löschen“-Knopf am Ende einer Bibliotheks-Liste
+function clearAllButton (body, label, onClick, cls = '') {
+  const b = document.createElement('button')
+  b.className = 'btn ghost block ' + cls
+  b.style.marginTop = '14px'
+  b.innerHTML = `${icon('trash')} ${T(label)}`
+  b.onclick = onClick
+  body.append(b)
 }
 
 const ARCHIVE_OPTIONS = [0, 12, 24, 72, 168, 720]
@@ -737,8 +729,11 @@ function writeSession ({ refresh = true } = {}) {
     tabs: spaceTabs(sp).map(t => ({ url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, lastActive: t.lastActive, nav: t.nav || t.navCache || undefined }))
   }))
   S.data.activeSpace = sp0?.private ? (space(sp0.returnTo) ? sp0.returnTo : S.data.spaces[0]?.id) : S.activeSpace
-  A.send('store:set', 'spaces', S.data.spaces)
-  A.send('store:set', 'activeSpace', S.data.activeSpace)
+  // Nur senden, was sich geändert hat: Titel- und Favicon-Updates lösen oft Speichern ohne Änderung aus,
+  // und die Sitzung (mit Vor/Zurück-Verläufen) ist bei vielen Tabs mehrere hundert KB groß
+  const json = JSON.stringify(S.data.spaces)
+  if (json !== writeSession.lastSpaces) { writeSession.lastSpaces = json; A.send('store:set', 'spaces', S.data.spaces) }
+  if (S.data.activeSpace !== writeSession.lastActive) { writeSession.lastActive = S.data.activeSpace; A.send('store:set', 'activeSpace', S.data.activeSpace) }
   if (!refresh) return
   const awake = [...S.tabs.values()].filter(t => t.wcId && !isPrivateTab(t))
   if (!awake.length) return
@@ -991,7 +986,8 @@ function favItem (bm, cur) {
     ic.innerHTML = icon('folder')
     el.append(ic)
   } else {
-    if (cur && hostOf(cur.url) === hostOf(bm.url)) el.classList.add('active')
+    el.dataset.host = hostOf(bm.url)
+    if (cur && hostOf(cur.url) === el.dataset.host) el.classList.add('active')
     el.append(faviconEl(bm.favicon, bm.url, 20))
   }
   const label = document.createElement('span')
@@ -1059,20 +1055,18 @@ function favDrop (e, targetId, where) {
 function initFavorites () {
   // Freie Fläche: ans Ende verschieben bzw. Tab ans Ende anheften; Rechtsklick: Hinzufügen-Menü
   for (const zone of [$('#favorites'), $('#favbar')]) {
-    // Die Werkzeuge rechts in der Favoritenleiste (#sb-tools) sind weder Ablageziel noch Favoriten-Fläche
     zone.addEventListener('dragover', e => {
-      if (e.target.closest('#sb-tools')) return
       const types = e.dataTransfer.types
       if (types.includes('text/caravel-bm') || types.includes('text/caravel-tab')) e.preventDefault()
     })
     zone.addEventListener('drop', e => {
-      if (e.target.closest('.fav, #sb-tools')) return
+      if (e.target.closest('.fav')) return
       e.preventDefault()
       e.stopPropagation()
       favDrop(e, null, 'after')
     })
     zone.addEventListener('contextmenu', e => {
-      if (e.target.closest('.fav, #sb-tools')) return
+      if (e.target.closest('.fav')) return
       e.preventDefault()
       showMenu(e.clientX, e.clientY, favBarMenuItems())
     })
@@ -1132,9 +1126,7 @@ function layoutFavbar () {
   const items = [...$('#favorites').children]
   for (const el of items) el.classList.remove('overflow')
   if (!isHorizontalTabs() || bar.hidden) { more.hidden = true; return }
-  // rechts stehen die Werkzeuge (Verlauf, Downloads …) – Favoriten enden 44 px davor (Platz für »)
-  const tools = $('#sb-tools')
-  const limit = (bar.contains(tools) ? tools.getBoundingClientRect().left : bar.getBoundingClientRect().right) - 44
+  const limit = bar.getBoundingClientRect().right - 44 // Platz für »
   const hidden = items.filter(el => el.getBoundingClientRect().right > limit)
   for (const el of hidden) el.classList.add('overflow')
   more.hidden = !hidden.length
@@ -1162,21 +1154,26 @@ function openBookmark (bm) {
   else createTab({ url: bm.url, favicon: bm.favicon, title: bm.title })
 }
 
+// Die Elemente der Tabs bleiben erhalten (tab.el) und werden nur neu angeordnet und aktualisiert –
+// beim Wechsel zwischen Spaces mit vielen Tabs spart das den kompletten Neuaufbau
 function renderTabs () {
   const sp = curSpace()
   const list = $('#tab-list')
-  list.innerHTML = ''
-  if (!sp) return
+  if (!sp) { list.replaceChildren(); return }
   const tabs = spaceTabs(sp)
   const pinned = tabs.filter(t => t.pinned)
   const normal = tabs.filter(t => !t.pinned)
-  if (pinned.length) {
-    list.insertAdjacentHTML('beforeend', `<div class="tab-section">${T('Angeheftet')}</div>`)
-    pinned.forEach(t => list.append(tabEl(t)))
-    list.insertAdjacentHTML('beforeend', `<div class="tab-section">${T('Tabs')}</div>`)
-  }
-  normal.forEach(t => list.append(tabEl(t)))
-  renderFavorites()
+  const section = text => Object.assign(document.createElement('div'), { className: 'tab-section', textContent: T(text) })
+  const el = t => { if (!t.el) return tabEl(t); updateTabEl(t); return t.el }
+  list.replaceChildren(...(pinned.length ? [section('Angeheftet'), ...pinned.map(el), section('Tabs')] : []), ...normal.map(el))
+  markActiveFavorite()
+}
+
+// Favorit der aktuellen Website hervorheben, ohne die Favoriten neu aufzubauen
+function markActiveFavorite () {
+  const t = activeTab()
+  const host = t && !isNewtab(t.url) ? hostOf(t.url) : ''
+  for (const el of $$('#favorites .fav[data-host]')) el.classList.toggle('active', !!host && el.dataset.host === host)
 }
 
 function tabEl (tab) {
@@ -1233,12 +1230,17 @@ function updateTabEl (tab) {
   el.classList.toggle('sleeping', tab.sleeping)
   el.classList.toggle('pinned', tab.pinned)
   el.classList.toggle('in-split', !!sp.split && (sp.split.left === tab.id || sp.split.right === tab.id) && sp.activeId !== tab.id)
+  // Symbol nur neu aufbauen, wenn sich Ladezustand, Favicon oder Website geändert haben
   const fav = $('.fav-ico', el)
-  fav.innerHTML = ''
-  if (tab.loading) fav.innerHTML = '<span class="spinner"></span>'
-  // privater Space: keine Favicons über die (dauerhaft cachende) Sitzung der Oberfläche laden
-  else if (isPrivateTab(tab) && !/^data:/.test(tab.favicon || '') && !/^caravel:/.test(tab.url)) fav.append(letterEl(hostOf(tab.url) || tab.url))
-  else fav.append(faviconEl(tab.favicon, tab.url))
+  const favKey = tab.loading ? 'loading' : `${tab.favicon || ''}|${hostOf(tab.url) || tab.url}`
+  if (fav.dataset.key !== favKey) {
+    fav.dataset.key = favKey
+    fav.innerHTML = ''
+    if (tab.loading) fav.innerHTML = '<span class="spinner"></span>'
+    // privater Space: keine Favicons über die (dauerhaft cachende) Sitzung der Oberfläche laden
+    else if (isPrivateTab(tab) && !/^data:/.test(tab.favicon || '') && !/^caravel:/.test(tab.url)) fav.append(letterEl(hostOf(tab.url) || tab.url))
+    else fav.append(faviconEl(tab.favicon, tab.url))
+  }
   $('.title', el).textContent = tab.title || prettyUrl(tab.url) || T('Neuer Tab')
   el.title = `${tab.title}\n${displayUrl(tab.url) || T('Neuer Tab')}${tab.sleeping ? '\n💤 ' + T('Schläft – spart Arbeitsspeicher') : ''}`
   $('.audio', el).innerHTML = tab.audible || tab.muted ? icon(tab.muted ? 'mute' : 'volume') : ''
@@ -1437,12 +1439,13 @@ function updateNav () {
   const ready = t?.ready
   $('#btn-back').disabled = !(ready && t.webview.canGoBack())
   $('#btn-forward').disabled = !(ready && t.webview.canGoForward())
-  $('#btn-reload').innerHTML = icon(t?.loading ? 'x' : 'reload')
-  $('#btn-reload').title = t?.loading ? T('Laden abbrechen') : T('Neu laden (F5)')
-  updateAdblockChip()
-  const bm = t && !!bmByUrl(t.url)
-  $('#btn-star').classList.toggle('on', !!bm)
-  $('#btn-star').innerHTML = icon('star')
+  const reloadBtn = $('#btn-reload')
+  if (reloadBtn.dataset.state !== String(!!t?.loading)) {
+    reloadBtn.dataset.state = String(!!t?.loading)
+    reloadBtn.innerHTML = icon(t?.loading ? 'x' : 'reload')
+    reloadBtn.title = t?.loading ? T('Laden abbrechen') : T('Neu laden (F5)')
+  }
+  $('#btn-star').classList.toggle('on', !!t && !!bmByUrl(t.url))
   $('#btn-star').hidden = !t || isNewtab(t.url)
   // Werbeblocker und Leseansicht stehen im Seiten-Menü (Knopf vorn in der Adresszeile)
   updatePopupButton()
@@ -1489,16 +1492,6 @@ function adblockPaused (url) {
   return !!host && (settings().adblockAllowlist || []).some(h => host === h || host.endsWith('.' + h))
 }
 
-function updateAdblockChip () {
-  const t = activeTab()
-  const b = $('#btn-adblock')
-  const on = settings().adblock !== false && !(t && adblockPaused(t.url))
-  b.classList.toggle('active', on)
-  b.classList.toggle('has', on && t?.blocked > 0)
-  b.innerHTML = `${icon(on ? 'shieldCheck' : 'shield')}${on && t?.blocked ? `<span>${t.blocked}</span>` : ''}`
-  b.title = on ? T('Werbeblocker: {n} Anfragen auf dieser Seite blockiert', { n: t?.blocked || 0 }) : T('Werbeblocker ist hier pausiert')
-}
-
 function updateAmbient () {
   const t = activeTab()
   const priv = !!curSpace()?.private
@@ -1514,8 +1507,11 @@ function updateAmbient () {
   // Palette, Modal und Peek legen einen Schleier über das Fenster – die Windows-Fensterknöpfe dunkeln mit ab
   const veiled = !$('#modal').hidden || !$('#palette').hidden || !!S.peek
   const wco = veiled ? toHex(mixRgb(toRgb(toolbar), dark ? [0, 0, 0] : [28, 28, 30], dark ? 0.52 : 0.24)) : toolbar
-  const barHeight = parseInt(getComputedStyle(document.body).getPropertyValue('--toolbar-h')) || 44
-  A.send('ui:titlebar', wco, priv ? '#ece9f5' : dark ? '#e6e6e8' : '#1d1d1f', barHeight)
+  // Leistenhöhe nur neu lesen, wenn sich Layout oder Dichte geändert haben (getComputedStyle erzwingt eine Stilberechnung)
+  const cls = document.body.className
+  if (updateAmbient.cls !== cls) { updateAmbient.cls = cls; updateAmbient.height = parseInt(getComputedStyle(document.body).getPropertyValue('--toolbar-h')) || 44 }
+  const bar = [wco, priv ? '#ece9f5' : dark ? '#e6e6e8' : '#1d1d1f', updateAmbient.height]
+  if (bar.join() !== updateAmbient.sent) { updateAmbient.sent = bar.join(); A.send('ui:titlebar', ...bar) }
 }
 
 function progress (state) {
@@ -1760,11 +1756,6 @@ function removeBookmarkId (id) {
   toast('Aus Favoriten entfernt', what, 'trash', {
     actions: [{ label: 'Rückgängig', run: () => { loc.list.splice(Math.min(loc.index, loc.list.length), 0, loc.item); saveBookmarks() } }]
   })
-}
-
-function removeBookmark (url) {
-  const bm = bmByUrl(url)
-  if (bm) removeBookmarkId(bm.id)
 }
 
 // Verschieben vor/hinter targetId oder in einen Ordner; targetId null = ans Ende der Leiste
@@ -2185,17 +2176,52 @@ function rowEl ({ url, favicon, title, sub, time, actions = [], onClick, iconNam
   return row
 }
 
-function renderHistory (body) {
+// Suchfeld oben in einer Bibliotheks-Ansicht: leert die Ansicht, behält Eingabe und Cursor beim Neuzeichnen.
+// Gibt die aktuelle Suche zurück; eine neue Suche setzt die Zahl der angezeigten Einträge zurück.
+function panelSearch (body, placeholder, rerender) {
   const q = body.querySelector('.panel-search')?.value || ''
   body.innerHTML = ''
   const search = document.createElement('input')
   search.className = 'panel-search'
-  search.placeholder = T('Verlauf durchsuchen …')
+  search.placeholder = T(placeholder)
   search.value = q
-  search.oninput = () => { renderHistory(body); const s = body.querySelector('.panel-search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length) }
+  search.oninput = () => {
+    delete body.dataset.limit
+    rerender(body)
+    const s = body.querySelector('.panel-search')
+    s.focus()
+    s.setSelectionRange(s.value.length, s.value.length)
+  }
   body.append(search)
+  return q
+}
+
+// Überschrift „Heute“, „Gestern“ oder Datum – für Listen, die nach Tagen gruppiert sind
+function dayLabel (ts) {
+  const ds = new Date(ts).toDateString()
+  if (ds === new Date().toDateString()) return T('Heute')
+  if (ds === new Date(Date.now() - 86400000).toDateString()) return T('Gestern')
+  return new Date(ts).toLocaleDateString(I18N.locale, { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+// Lange Listen (Verlauf, Archiv) zunächst gekürzt zeichnen – „Weitere anzeigen“ hängt mehr an
+const PAGE = 100
+function moreButton (body, total, shown, rerender) {
+  if (total <= shown) return
+  const more = document.createElement('button')
+  more.className = 'btn ghost block'
+  more.style.marginTop = '8px'
+  more.textContent = T('Weitere anzeigen ({n})', { n: total - shown })
+  more.onclick = () => { body.dataset.limit = shown + PAGE * 2; rerender(body) }
+  body.append(more)
+}
+
+function renderHistory (body) {
+  const q = panelSearch(body, 'Verlauf durchsuchen …', renderHistory)
   const ql = q.toLowerCase()
-  const list = S.data.history.filter(h => !ql || (h.title + ' ' + h.url).toLowerCase().includes(ql)).slice(0, 300)
+  const all = ql ? S.data.history.filter(h => (h.title + ' ' + h.url).toLowerCase().includes(ql)) : S.data.history
+  const limit = +body.dataset.limit || PAGE
+  const list = all.slice(0, limit)
   // Treffer im Seiteninhalt folgen asynchron (nur, solange dieselbe Suche noch angezeigt wird)
   if (q.trim().length >= 3) {
     const shown = new Set(list.map(h => h.url))
@@ -2217,19 +2243,15 @@ function renderHistory (body) {
     })
   }
   if (!list.length) { body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('history')}<div>${q ? T('Keine Treffer') : T('Noch kein Verlauf')}</div></div><span class="history-clear"></span>`); return }
-  const today = new Date().toDateString()
-  const yesterday = new Date(Date.now() - 86400000).toDateString()
   let last = ''
   for (const h of list) {
-    const d = new Date(h.time)
-    const ds = d.toDateString()
-    const label = ds === today ? T('Heute') : ds === yesterday ? T('Gestern') : d.toLocaleDateString(I18N.locale, { weekday: 'long', day: 'numeric', month: 'long' })
+    const label = dayLabel(h.time)
     if (label !== last) { body.insertAdjacentHTML('beforeend', `<div class="group-title">${esc(label)}</div>`); last = label }
     body.append(rowEl({
       url: h.url,
       title: h.title || h.url,
       sub: hostOf(h.url),
-      time: d.toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }),
+      time: new Date(h.time).toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }),
       onClick: () => createTab({ url: h.url }),
       actions: [
         { icon: 'eye', title: 'Peek', run: () => openPeek(h.url) },
@@ -2237,12 +2259,8 @@ function renderHistory (body) {
       ]
     }))
   }
-  const clear = document.createElement('button')
-  clear.className = 'btn ghost block history-clear'
-  clear.style.marginTop = '14px'
-  clear.innerHTML = `${icon('trash')} ${T('Gesamten Verlauf löschen')}`
-  clear.onclick = () => confirmDialog('Verlauf löschen?', 'Der gesamte Browserverlauf wird unwiderruflich entfernt.', 'Löschen', () => { S.data.history = []; save('history'); A.send('fulltext:clear'); renderPanel() })
-  body.append(clear)
+  moreButton(body, all.length, list.length, renderHistory)
+  clearAllButton(body, 'Gesamten Verlauf löschen', () => confirmDialog('Verlauf löschen?', 'Der gesamte Browserverlauf wird unwiderruflich entfernt.', 'Löschen', () => { S.data.history = []; save('history'); A.send('fulltext:clear'); renderPanel() }), 'history-clear')
 }
 
 function renderDownloads (body) {
@@ -2892,12 +2910,11 @@ async function openAdblockPopover () {
       if (e.target.checked) list.delete(host); else list.add(host)
       st.adblockAllowlist = [...list]
       saveSettingsNow()
-      updateAdblockChip()
       reloadActive()
     }
   }
   $('#ab-cookies', p).onchange = e => { st.adblockCookies = e.target.checked; saveSettingsNow(); toast('Werbeblocker', 'Listen werden neu geladen …', 'shield') }
-  $('#ab-global', p).onchange = e => { st.adblock = e.target.checked; saveSettingsNow(); updateAdblockChip(); reloadActive() }
+  $('#ab-global', p).onchange = e => { st.adblock = e.target.checked; saveSettingsNow(); reloadActive() }
   $('#ab-update', p).onclick = async () => {
     toast('Filterlisten', 'Lade aktuelle Listen von uBlock Origin …', 'refresh')
     try { await A.invoke('adblock:update'); toast('Filterlisten aktualisiert', 'Gilt ab dem nächsten Seitenaufruf.', 'check') } catch (err) { toast('Aktualisierung fehlgeschlagen', String(err.message || err), 'warning') }
@@ -2998,7 +3015,6 @@ function openSitePopover (view = 'main') {
     if (e.target.checked) list.delete(host); else list.add(host)
     st.adblockAllowlist = [...list]
     saveSettingsNow()
-    updateAdblockChip()
     if (t.ready) t.webview.reload()
     openSitePopover()
   }
@@ -3628,25 +3644,8 @@ function initDock () {
 
 // Liest die aktuelle Seite als sauberes Markdown (Readability + Turndown)
 async function pageAsMarkdown (tab = activeTab()) {
-  if (!tab?.ready || !/^https?:|^file:/.test(tab.url)) return null
-  try {
-    return await tab.webview.executeJavaScript(`(function () {
-      ${A.readabilitySource()}
-      ${A.turndownSource()}
-      var html = null, title = document.title;
-      try {
-        var art = new Readability(document.cloneNode(true), { charThreshold: 250 }).parse();
-        if (art && art.content) { html = art.content; title = art.title || title; }
-      } catch (e) {}
-      var md;
-      try {
-        var td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
-        td.remove(['script', 'style', 'noscript', 'iframe']);
-        md = td.turndown(html || document.body.innerHTML);
-      } catch (e) { md = (document.body && document.body.innerText) || ''; }
-      return { title: title, url: location.href, markdown: md.replace(/\\n{3,}/g, '\\n\\n').trim() };
-    })()`)
-  } catch { return null }
+  if (!tab?.ready || !tab.wcId || !/^https?:|^file:/.test(tab.url)) return null
+  return A.invoke('tab:markdown', tab.wcId).catch(() => null)
 }
 
 async function copyPageAsMarkdown () {
@@ -4773,7 +4772,6 @@ async function openClaudeExtension () {
 function applySettings () {
   applyTheme()
   applyTabLayout()
-  updateAdblockChip()
   applyAssistant()
   if (DOCK.open) renderDock()
   if (S.focus.active) A.send('focus:set', true, settings().focusBlocklist)
@@ -5123,10 +5121,7 @@ function initToolbar () {
   $('#btn-back').onclick = goBack
   $('#btn-forward').onclick = goForward
   $('#btn-reload').onclick = () => reload(false)
-  $('#btn-reader').innerHTML = icon('reader')
-  $('#btn-reader').onclick = toggleReader
   $('#btn-star').onclick = toggleBookmark
-  $('#btn-adblock').onclick = () => S.popover === 'adblock' ? hidePopover() : openAdblockPopover()
   $('#btn-popup').onclick = openPopupPopover
   $('#btn-translate').onclick = openTranslatePopover
   $('#omni-site').onclick = () => S.popover === 'site' ? hidePopover() : openSitePopover()
@@ -5161,7 +5156,7 @@ function flushPending () {
 function initGlobalEvents () {
   document.addEventListener('mousedown', e => {
     if (!$('#menu').hidden && !e.target.closest('#menu')) hideMenu()
-    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-adblock, #btn-vpn, #focus-hud, #btn-star, #btn-popup, #btn-translate, #omni-site, #btn-library')) hidePopover()
+    if (!$('#popover').hidden && !e.target.closest('#popover') && !e.target.closest('#btn-cast, #btn-focus, #btn-vpn, #focus-hud, #btn-star, #btn-popup, #btn-translate, #omni-site, #btn-library')) hidePopover()
   })
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeTopLayer()
@@ -5223,7 +5218,6 @@ function initGlobalEvents () {
     const t = tabByWc(wcId)
     if (!t) return
     t.blocked = count
-    if (t === activeTab()) updateAdblockChip()
   })
   A.on('adblock:status', st => {
     if (st.status === 'error') toast('Werbeblocker', T('Filterlisten konnten nicht geladen werden: {error}', { error: st.error }), 'warning', { duration: 7000 })

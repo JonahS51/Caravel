@@ -912,6 +912,7 @@
     'Bibliothek: Verlauf, Downloads, Leseliste …': 'Library: history, downloads, reading list …',
     'Einstellungen und mehr': 'Settings and more',
     'Zuletzt geschlossen': 'Recently closed',
+    'Weitere anzeigen ({n})': 'Show more ({n})',
     '{n} aktiv': '{n} active',
     'Favoriten und Verlauf importieren …': 'Import favorites and history …',
     'Seiten-Menü: Verbindung, Werbeblocker, Website-Einstellungen': 'Page menu: connection, ad blocker, site settings',

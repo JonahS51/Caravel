@@ -7,7 +7,6 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { EventEmitter } = require('node:events')
-const { Client } = require('castv2')
 const { t } = require('../shared/i18n')
 
 const NS = {
@@ -168,6 +167,7 @@ class Receiver extends EventEmitter {
   connect () {
     if (this.ready) return this.ready
     this.ready = new Promise((resolve, reject) => {
+      const { Client } = require('castv2') // erst beim ersten Verbinden laden (beim Start ~65 ms gespart)
       const client = new Client()
       let done = false
       const fail = err => {

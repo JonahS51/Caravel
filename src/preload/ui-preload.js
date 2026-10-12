@@ -32,7 +32,7 @@ const INVOKES = new Set([
   'import:sources', 'import:run', 'agent:status', 'agent:set-key', 'agent:run',
   'boost:apply', 'boost:pick', 'fulltext:search',
   'reading:save', 'reading:get',
-  'sync:info', 'sync:pick-folder', 'sync:configure', 'sync:run', 'sync:disable'
+  'sync:info', 'sync:pick-folder', 'sync:configure', 'sync:run', 'sync:disable', 'tab:markdown'
 ])
 
 const sources = {}
@@ -54,6 +54,5 @@ contextBridge.exposeInMainWorld('caravel', {
   },
   // Pfad einer ins Fenster gezogenen Datei (Drag & Drop)
   pathForFile: file => { try { return webUtils.getPathForFile(file) } catch { return '' } },
-  readabilitySource: () => source('readability', '@mozilla/readability/Readability.js'),
-  turndownSource: () => source('turndown', 'turndown/dist/turndown.js')
+  readabilitySource: () => source('readability', '@mozilla/readability/Readability.js')
 })

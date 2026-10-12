@@ -9,8 +9,11 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { net } = require('electron')
-const { ElectronBlocker } = require('@ghostery/adblocker-electron')
 const { parse } = require('tldts-experimental')
+// Die Filter-Engine erst beim Laden der Listen einbinden (siehe doLoad) – das Laden der Bibliothek
+// kostet ~120 ms und läuft so parallel zum Aufbau der Oberfläche statt vor dem ersten Fenster
+let ElectronBlocker = null
+const engine = () => (ElectronBlocker ??= require('@ghostery/adblocker-electron').ElectronBlocker)
 // Die Bibliothek verwaltet nur eine Sitzung selbst (globale IPC-Handler); weitere Sitzungen
 // (privater Space) bekommen ihre Netzwerkfilter und das CSS-Preload direkt
 const COSMETIC_PRELOAD = require.resolve('@ghostery/adblocker-electron-preload')
@@ -85,7 +88,7 @@ class AdBlock {
       Promise.all(urls.map(u => fetchList(u).catch(err => { console.warn('[adblock] Liste fehlt:', err.message); return '' }))),
       fetchText(RESOURCES)
     ])
-    const blocker = ElectronBlocker.parse(lists.join('\n'), {
+    const blocker = engine().parse(lists.join('\n'), {
       enableCompression: true,
       loadCosmeticFilters: true,
       loadNetworkFilters: true,
@@ -109,12 +112,14 @@ class AdBlock {
 
   async doLoad ({ forceUpdate = false } = {}) {
     this.status = 'loading'
+    // Erst nach dem aktuellen Durchlauf weitermachen: Fenster und Oberfläche starten parallel
+    await new Promise(resolve => setImmediate(resolve))
     let blocker = null
     const file = this.cacheFile()
     try {
       const stat = fs.statSync(file)
       if (!forceUpdate) {
-        blocker = ElectronBlocker.deserialize(fs.readFileSync(file))
+        blocker = engine().deserialize(fs.readFileSync(file))
         this.updated = stat.mtimeMs
         if (Date.now() - stat.mtimeMs > MAX_AGE) this.refreshLater()
       }

@@ -152,7 +152,6 @@ body.html-fullscreen #app { grid-template-columns: 0 1fr; }
 .fav.drop-before { box-shadow: -2px 0 0 var(--accent-ring); }
 .fav.drop-after { box-shadow: 2px 0 0 var(--accent-ring); }
 .fav.drop-into { background: var(--accent-wash) !important; border-color: var(--accent-line); }
-.fav.dragging { opacity: .4; }
 .letter { display: grid; place-items: center; font: 700 10px/1 var(--font); color: #fff; border-radius: var(--r-xs); text-transform: uppercase; }
 
 .new-tab {
@@ -235,10 +234,6 @@ body.theme-light .space-btn { --sc-ink: oklch(from var(--sc) min(l, .50) min(c, 
 .space-btn.drop { background: var(--accent-wash); box-shadow: inset 0 0 0 1.5px var(--sc-ink); }
 .space-btn.private:not(.active):not(:hover) { color: var(--text-3); }
 .space-btn.private .i { width: 17px; height: 17px; }
-.sb-tools { display: flex; justify-content: space-between; }
-.sb-tools .icon-btn { color: var(--text-3); }
-.sb-tools .icon-btn:hover { color: var(--text); }
-.sb-tools .icon-btn.on { color: var(--accent-ink); }
 
 /* Eingeklappte Seitenleiste (64 px, nur Symbole) */
 body.sidebar-collapsed .brand-text, body.sidebar-collapsed .new-tab .label, body.sidebar-collapsed .new-tab kbd,
@@ -258,7 +253,7 @@ body.sidebar-collapsed .tab .badge.audio:not(:empty), body.sidebar-collapsed .ta
 body.sidebar-collapsed .tab .badge.agent { background: var(--claude); }
 body.sidebar-collapsed .tab .badge .i { display: none; }
 body.sidebar-collapsed .tab .badge.state:not(.agent) { display: none; }
-body.sidebar-collapsed .spaces, body.sidebar-collapsed .sb-tools { flex-direction: column; align-items: center; }
+body.sidebar-collapsed .spaces { flex-direction: column; align-items: center; }
 
 /* ---------- 7. Werkzeugleiste ---------- */
 #main { display: flex; flex-direction: column; min-width: 0; }
@@ -316,15 +311,7 @@ body.sidebar-collapsed .spaces, body.sidebar-collapsed .sb-tools { flex-directio
 #btn-star.on { color: var(--accent-ink); background: transparent; }
 #btn-star.on .i { fill: currentColor; }
 #btn-popup { color: var(--warn); }
-#btn-translate.on, #btn-reader.on { color: var(--accent-ink); background: transparent; }
-.chip-btn {
-  height: 26px; padding: 0 7px 0 5px; display: flex; align-items: center; gap: 4px; cursor: pointer;
-  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-3);
-  font: 500 var(--fs-sm) var(--font); font-variant-numeric: tabular-nums;
-}
-.chip-btn .i { width: 16px; height: 16px; }
-.chip-btn:hover { background: var(--hover); color: var(--text); }
-.chip-btn.active.has span { color: var(--text-2); }
+#btn-translate.on { color: var(--accent-ink); background: transparent; }
 browser-action-list { display: flex; align-items: center; gap: 2px; }
 browser-action-list::part(action) { width: 28px; height: 28px; border-radius: var(--r); background-size: 16px; }
 browser-action-list::part(action):hover { background-color: var(--hover); }
@@ -374,18 +361,6 @@ browser-action-list::part(badge) { font-size: 9px; border-radius: 4px; }
 .vpn-pill.error { color: var(--danger); }
 .vpn-pill.error .dotv { background: var(--danger); box-shadow: none; }
 
-/* KI-Knopf: der einzige konturierte Knopf der Leiste */
-.claude-btn {
-  height: 28px; padding: 0 11px 0 9px; margin-left: 4px; display: flex; align-items: center; gap: 7px; cursor: pointer;
-  border: 1px solid var(--line-2); border-radius: var(--r); background: transparent; color: var(--text);
-  font: 600 var(--fs-sm) var(--font);
-  transition: background var(--d-1), border-color var(--d-1);
-}
-.claude-btn .i { width: 15px; height: 15px; color: var(--text-2); }
-.claude-btn:hover { background: var(--hover); }
-.claude-btn.on { background: var(--tab-active); border-color: transparent; box-shadow: var(--shadow-tab); }
-.claude-btn.on .i { color: var(--claude); }
-
 /* ---------- 8. Inhaltsbereich: ein bündiges Blatt mit genau einer Rundung ---------- */
 .content-row { flex: 1; display: flex; min-height: 0; position: relative; }
 body:not(.layout-chrome):not(.layout-safari) .content-row {
@@ -423,12 +398,9 @@ body.html-fullscreen #toolbar, body.html-fullscreen #tabstrip, body.html-fullscr
 #find-count { color: var(--text-3); font-size: var(--fs-sm); min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
 
 /* ---------- 9. Seitenpanel & KI-Dock: Blätter mit Haarlinie ---------- */
-.panel, .claude-dock { flex: none; display: flex; flex-direction: column; background: var(--bg-2); border-left: 1px solid var(--line); animation: panelIn var(--d-3) var(--ease); }
-.panel { width: 340px; }
+.claude-dock { flex: none; display: flex; flex-direction: column; background: var(--bg-2); border-left: 1px solid var(--line); animation: panelIn var(--d-3) var(--ease); }
 .claude-dock { width: var(--dock-w); position: relative; }
 @keyframes panelIn { from { opacity: 0; transform: translateX(8px); } }
-.panel-head { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 8px 0 16px; flex: none; }
-.panel-head h2 { margin: 0; font: 600 var(--fs-xl) var(--font-display); }
 .panel-body { flex: 1; padding: 0 8px 16px; }
 .panel-note { color: var(--text-2); font-size: var(--fs-md); line-height: 1.5; margin: 4px 8px 12px; }
 .panel-search { width: 100%; height: 32px; padding: 0 12px; margin-bottom: 8px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--elev); outline: none; user-select: text; }
@@ -470,7 +442,6 @@ body.html-fullscreen #toolbar, body.html-fullscreen #tabstrip, body.html-fullscr
 .dock-body { flex: 1; position: relative; background: var(--stage-bg); }
 .dock-body webview { position: absolute; inset: 0; visibility: hidden; }
 .dock-body webview.visible { visibility: visible; }
-.dock-empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 32px; color: var(--text-2); }
 
 /* KI-Agent: Protokoll oben, Auftrag unten */
 .agent-pane { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg-2); }
@@ -780,10 +751,6 @@ body.layout-safari .tabstrip .tab.pinned { flex: 0 0 40px; min-width: 40px; padd
 .favbar .fav.folder .fav-folder .i { width: 16px; height: 16px; }
 .favbar .fav-label { display: block; font-size: var(--fs-sm); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .favbar .fav-more { flex: none; width: 26px; height: 26px; }
-.favbar .sb-tools { flex: none; gap: 0; padding-left: 6px; margin-left: 6px; border-left: 1px solid var(--line); }
-.favbar .sb-tools .icon-btn { width: 26px; height: 26px; border-radius: var(--r-sm); }
-.favbar .sb-tools .icon-btn .i { width: 16px; height: 16px; }
-.favbar .sb-tools .icon-btn .dot { right: 3px; top: 3px; }
 .fav-empty { font-size: var(--fs-sm); color: var(--text-3); padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fav.overflow { display: none !important; }
 
@@ -811,6 +778,7 @@ body.layout-chrome .ts-spaces::after { content: ""; width: 1px; height: 18px; ba
 /* Bereiche, die bisher im Seitenpanel lagen, bekommen etwas Innenabstand */
 .lib-body > :not(.lib-item):not(.lib-sep):not(.lib-label) { margin-left: 10px; margin-right: 10px; }
 .lib-body > .panel-search { width: calc(100% - 20px); margin-top: 10px; }
+.lib-body > .btn.block { width: calc(100% - 20px); }
 .lib-body > .panel-note { margin: 10px 14px; }
 .lib-item, .pm-row {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 34px; padding: 0 14px; text-align: left;
@@ -840,7 +808,7 @@ body.density-compact .icon-btn:not(.sm) { width: 28px; height: 28px; }
 body.density-compact .omnibox { height: 28px; }
 body.density-compact .tab, body.density-compact .new-tab { height: 28px; }
 body.density-compact #sidebar .fav { height: 34px; }
-body.density-compact .claude-btn, body.density-compact .vpn-pill, body.density-compact .focus-hud { height: 26px; }
+body.density-compact .vpn-pill, body.density-compact .focus-hud { height: 26px; }
 body.density-compact .omni-suggest { top: 32px; }
 body.density-compact.layout-safari .tabstrip { height: 34px; }
 body.density-compact.layout-safari .tabstrip .tab { height: 26px; }

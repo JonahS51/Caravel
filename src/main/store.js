@@ -109,13 +109,17 @@ class Store {
     this.scheduleSave()
   }
 
+  // Die ganze Datei wird neu geschrieben – Änderungen daher sammeln, aber spätestens nach 5 s sichern
   scheduleSave () {
     clearTimeout(this.timer)
-    this.timer = setTimeout(() => this.flush(), 400)
+    this.firstChange ??= Date.now()
+    const wait = Math.max(0, Math.min(1500, this.firstChange + 5000 - Date.now()))
+    this.timer = setTimeout(() => this.flush(), wait)
   }
 
   flush () {
     clearTimeout(this.timer)
+    this.firstChange = null
     try {
       const tmp = this.file + '.tmp'
       fs.writeFileSync(tmp, JSON.stringify(this.data))

@@ -27,7 +27,7 @@ class FullText {
 
   scheduleSave () {
     clearTimeout(this.timer)
-    this.timer = setTimeout(() => this.flush(), 10000)
+    this.timer = setTimeout(() => this.flush(), 30000) // bis zu ~9 MB – selten schreiben, beim Beenden immer
   }
 
   flush () {

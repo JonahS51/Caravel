@@ -302,16 +302,7 @@ class McpServer {
           const t = await wc.executeJavaScript('document.body ? document.body.innerText : ""', true)
           return this.text(`# ${wc.getTitle()}\n${wc.getURL()}\n\n${t.slice(0, max)}`)
         }
-        const page = await wc.executeJavaScript(`(function () {
-          ${this.readabilitySource()}
-          ${this.turndownSource()}
-          var html = null, title = document.title;
-          try { var art = new Readability(document.cloneNode(true), { charThreshold: 250 }).parse(); if (art && art.content) { html = art.content; title = art.title || title; } } catch (e) {}
-          var td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
-          td.remove(['script', 'style', 'noscript', 'iframe']);
-          var md; try { md = td.turndown(html || document.body.innerHTML); } catch (e) { md = document.body.innerText; }
-          return { title: title, url: location.href, markdown: md.replace(/\\n{3,}/g, '\\n\\n').trim() };
-        })()`, true)
+        const page = await this.pageMarkdown(wc)
         const md = page.markdown.length > max ? page.markdown.slice(0, max) + '\n\n[… gekürzt]' : page.markdown
         return this.text(`# ${page.title}\n${page.url}\n\n${md}`)
       }
@@ -401,6 +392,21 @@ class McpServer {
       default:
         throw new Error(`Unbekanntes Werkzeug: ${name}`)
     }
+  }
+
+  // Seite als Markdown: Artikel-Erkennung (Readability) und Umwandlung (Turndown) im Tab.
+  // Auch für „Seite an die KI übergeben“ und „Als Markdown kopieren“ der Oberfläche (main.js, tab:markdown).
+  pageMarkdown (wc) {
+    return wc.executeJavaScript(`(function () {
+      ${this.readabilitySource()}
+      ${this.turndownSource()}
+      var html = null, title = document.title;
+      try { var art = new Readability(document.cloneNode(true), { charThreshold: 250 }).parse(); if (art && art.content) { html = art.content; title = art.title || title; } } catch (e) {}
+      var td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
+      td.remove(['script', 'style', 'noscript', 'iframe']);
+      var md; try { md = td.turndown(html || document.body.innerHTML); } catch (e) { md = (document.body && document.body.innerText) || ''; }
+      return { title: title, url: location.href, markdown: md.replace(/\\n{3,}/g, '\\n\\n').trim() };
+    })()`, true)
   }
 
   async pressKey (wc, key) {

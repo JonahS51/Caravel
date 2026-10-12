@@ -178,6 +178,13 @@ function canGoBack (wc) {
   return true
 }
 
+// Ergebnis beim ersten Aufruf berechnen und danach wiederverwenden
+function once (fn) {
+  let done = false
+  let value
+  return () => { if (!done) { value = fn(); done = true } return value }
+}
+
 function uniquePath (dir, name) {
   const ext = path.extname(name)
   const base = path.basename(name, ext) || 'download'
@@ -1251,6 +1258,13 @@ function registerIpc () {
     return syncInfo()
   })
 
+  // Seite als Markdown (für „An die KI übergeben“ und „Als Markdown kopieren“, siehe mcp-server.js)
+  ipcMain.handle('tab:markdown', async (_e, wcId) => {
+    const wc = webContents.fromId(wcId)
+    if (!wc || wc.isDestroyed() || !/^(https?|file):/.test(wc.getURL())) return null
+    try { return await mcp.pageMarkdown(wc) } catch { return null }
+  })
+
   // Leseliste: Artikel offline speichern (readinglist.js)
   ipcMain.handle('reading:save', (_e, art) => reading.save(art || {}))
   ipcMain.handle('reading:get', (_e, id) => reading.get(String(id)))
@@ -1563,8 +1577,8 @@ function setupMcp () {
       close: id => ask({ op: 'close', id })
     },
     markAgent,
-    readabilitySource: () => fs.readFileSync(require.resolve('@mozilla/readability/Readability.js'), 'utf8'),
-    turndownSource: () => fs.readFileSync(require.resolve('turndown/dist/turndown.js'), 'utf8')
+    readabilitySource: once(() => fs.readFileSync(require.resolve('@mozilla/readability/Readability.js'), 'utf8')),
+    turndownSource: once(() => fs.readFileSync(require.resolve('turndown/dist/turndown.js'), 'utf8'))
   })
   agent = new BrowserAgent({
     mcp,
