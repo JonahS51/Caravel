@@ -20,6 +20,7 @@ const DEFAULTS = {
       'tiktok.com', 'facebook.com', 'netflix.com', 'twitch.tv'
     ],
     restoreSession: true,
+    syncDir: '', // Ordner für den verschlüsselten Sync (leer = aus), siehe sync.js
     fullTextIndex: true, // Seiteninhalte für die Verlaufssuche lokal merken
     userName: '',
     sidebarCollapsed: false,

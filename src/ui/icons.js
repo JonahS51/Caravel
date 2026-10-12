@@ -79,6 +79,7 @@ window.ICONS = {
   pip: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
   tray: '<path d="M3 13.5l2.6-7.7A1.5 1.5 0 0 1 7 4.8h10a1.5 1.5 0 0 1 1.4 1l2.6 7.7"/><path d="M3 13.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4.5h-5.5l-1.5 2.5h-4l-1.5-2.5z"/>',
   readlater: '<path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4.5L5 21V4.5a1 1 0 0 1 1-1z"/><path d="M9 8.5h6M9 11.5h4"/>',
+  cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.5 1.6A3.8 3.8 0 0 1 17.5 18.5z"/><path d="M9.5 13.5l2.5-2.5 2.5 2.5M12 11v5"/>',
   usb: '<path d="M12 3v14M9 6l3-3 3 3M7 10v2l5 3M17 9v2l-5 3"/><circle cx="12" cy="19" r="2"/>'
 }
 

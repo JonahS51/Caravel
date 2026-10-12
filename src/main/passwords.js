@@ -108,6 +108,24 @@ class PasswordStore {
     else this.items.push({ id: crypto.randomUUID(), origin, username, password: this.encrypt(password), created: now, updated: now, used: 0 })
   }
 
+  // Sync (sync.js): Klartext-Einträge ohne „zuletzt benutzt“ (ändert sich ständig und ist gerätebezogen)
+  exportPlain () {
+    const out = {}
+    for (const i of this.items) {
+      try { out[i.id] = { origin: i.origin, username: i.username, password: this.decrypt(i.password), created: i.created, updated: i.updated } } catch {}
+    }
+    return out
+  }
+
+  // Ersetzt alle Einträge durch das Ergebnis des Abgleichs; „used“ bleibt lokal erhalten
+  applyPlain (records) {
+    const used = new Map(this.items.map(i => [i.id, i.used || 0]))
+    this.items = Object.entries(records).map(([id, r]) => ({
+      id, origin: r.origin, username: r.username || '', password: this.encrypt(r.password), created: r.created || Date.now(), updated: r.updated || Date.now(), used: used.get(id) || 0
+    }))
+    this.save()
+  }
+
   exportCsv () {
     const q = s => /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     const lines = ['name,url,username,password,note']

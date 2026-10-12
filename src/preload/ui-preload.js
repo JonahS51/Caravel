@@ -10,7 +10,7 @@ const EVENTS = new Set([
   'adblock:blocked', 'adblock:status', 'dl:update', 'perm:request', 'perm:saved', 'cast:devices', 'cast:sessions', 'cast:ended',
   'cast:pick', 'cast:error', 'ntp:bookmark', 'window-fullscreen',
   'vpn:state', 'crx:tabgroups', 'crx:sidepanel-open', 'crx:sidepanel-close', 'crx:debugger', 'mcp:ui',
-  'popup:blocked', 'device:pick', 'device:update', 'cert:override', 'update:state', 'pw:offer', 'tab:audible', 'agent:event'
+  'popup:blocked', 'device:pick', 'device:update', 'cert:override', 'update:state', 'pw:offer', 'tab:audible', 'agent:event', 'sync:applied', 'sync:state'
 ])
 const SENDS = new Set([
   'store:set', 'ui:ready', 'ui:reply', 'ui:titlebar', 'ui:accent', 'ui:peek-wc', 'ui:fullscreen', 'ui:webview',
@@ -31,7 +31,8 @@ const INVOKES = new Set([
   'pw:list', 'pw:reveal', 'pw:delete', 'pw:update', 'pw:never-remove', 'pw:import', 'pw:export',
   'import:sources', 'import:run', 'agent:status', 'agent:set-key', 'agent:run',
   'boost:apply', 'boost:pick', 'fulltext:search',
-  'reading:save', 'reading:get'
+  'reading:save', 'reading:get',
+  'sync:info', 'sync:pick-folder', 'sync:configure', 'sync:run', 'sync:disable'
 ])
 
 const sources = {}

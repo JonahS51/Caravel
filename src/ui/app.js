@@ -10,6 +10,8 @@ const T = I18N.t
 const $ = (s, r = document) => r.querySelector(s)
 const $$ = (s, r = document) => [...r.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+// Fehler aus A.invoke ohne Electrons Präfix „Error invoking remote method 'kanal:name': Error: “
+const cleanError = err => String(err?.message || err).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
 const PARTITION = 'persist:caravel'
 const PRIVATE_PARTITION = 'caravel-private' // privater Space: flüchtige Sitzung (siehe main.js)
 const NEWTAB = 'caravel://newtab/'
@@ -2340,7 +2342,7 @@ async function renderExtensions (body) {
     try {
       const ext = await A.invoke('ext:load-unpacked')
       if (ext) { toast('Erweiterung geladen', ext.name, 'puzzle'); renderPanel() }
-    } catch (err) { toast('Laden fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning') }
+    } catch (err) { toast('Laden fehlgeschlagen', cleanError(err), 'warning') }
   }
   if (!list.length) {
     body.insertAdjacentHTML('beforeend', `<div class="empty">${icon('puzzle')}<div>${T('Noch keine Erweiterungen installiert.')}<br><span style="font-size:12px">${T('Beliebt:')} Dark Reader, Bitwarden, Grammarly, DeepL</span></div></div>`)
@@ -3690,7 +3692,7 @@ function renderAgentSetup (pane, change = false) {
       await A.invoke('agent:set-key', value)
       AGENT.status = null
       renderAgent()
-    } catch (err) { toast('Speichern fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, ''), 'warning') }
+    } catch (err) { toast('Speichern fehlgeschlagen', cleanError(err), 'warning') }
   }
   $('#agent-keysave', pane).onclick = () => { if (input.value.trim()) saveKey(input.value) }
   input.onkeydown = e => { if (e.key === 'Enter' && input.value.trim()) saveKey(input.value) }
@@ -3711,7 +3713,7 @@ async function runAgent () {
   renderAgent()
   try { await A.invoke('agent:run', task) } catch (err) {
     AGENT.running = false
-    AGENT.log.push({ kind: 'error', text: String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, '') })
+    AGENT.log.push({ kind: 'error', text: cleanError(err) })
     renderAgent()
   }
 }
@@ -4142,6 +4144,7 @@ async function openSettings (section = 'general') {
     ['vpn', 'vpn', 'VPN'],
     ['privacy', 'lock', T('Privatsphäre')],
     ['passwords', 'key', T('Passwörter')],
+    ['sync', 'cloud', T('Sync')],
     ['downloads', 'download', T('Downloads')],
     ['performance', 'bolt', T('Leistung')],
     ['focus', 'focus', T('Fokus-Modus')],
@@ -4169,6 +4172,9 @@ async function openSettings (section = 'general') {
     passwords: `<h3>${T('Passwörter')}</h3>
       ${row(T('Passwörter speichern anbieten'), T('Nach einer Anmeldung fragt Caravel, ob die Zugangsdaten gespeichert werden sollen. Sie werden mit deinem Windows-Konto verschlüsselt und nur nach einem Klick im Auswahlmenü am Eingabefeld ausgefüllt.'), toggle('passwordsEnabled', st.passwordsEnabled !== false))}
       <div id="pw-box"><div class="muted" style="padding:14px 0">${T('Wird geladen …')}</div></div>`,
+    sync: `<h3>${T('Sync')}</h3>
+      <p class="muted" style="margin-top:0;line-height:1.55">${T('Hält Favoriten, Seiten-Notizen, Boosts, Zeitkapseln und Passwörter auf mehreren PCs gleich – über einen Ordner, den du ohnehin synchronisierst (OneDrive, Dropbox, Google Drive, Netzlaufwerk). Caravel legt dort eine einzige Datei ab, verschlüsselt mit deiner Passphrase (AES-256). Ohne die Passphrase kann niemand sie lesen – auch der Cloud-Anbieter nicht.')}</p>
+      <div id="sync-box"><div class="muted" style="padding:14px 0">${T('Wird geladen …')}</div></div>`,
     appearance: `<h3>${T('Darstellung')}</h3>
       ${row(T('Design'), '', `<div class="seg" data-seg="theme">${[['dark', T('Dunkel')], ['light', T('Hell')], ['system', T('System')]].map(([k, l]) => `<button data-v="${k}" class="${st.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
       ${row(T('Websites abdunkeln'), T('Im dunklen Design werden Seiten ohne eigenen Dunkelmodus (z. B. die Google-Suche) automatisch dunkel dargestellt – wie Chromes „Automatischer dunkler Modus für Webinhalte“. Seiten mit eigenem Dunkelmodus bleiben unverändert.'), toggle('autoDarkPages', st.autoDarkPages !== false))}
@@ -4271,6 +4277,7 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
   const apply = () => { save('settings'); applySettings() }
   if (section === 'about') renderUpdateBox()
   if (section === 'passwords') renderPasswords()
+  if (section === 'sync') renderSyncBox()
   const imp = $('#set-import')
   if (imp) imp.onclick = openImportDialog
   const dlDir = $('#set-dldir')
@@ -4372,7 +4379,7 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
         const file = await A.invoke('codex:install-mcp')
         toast('In Codex eingetragen', T('{file} – Codex ggf. neu starten. Caravel erscheint dort als MCP-Server „caravel“.', { file }), 'check', { duration: 7000 })
       } catch (err) {
-        toast('Eintragen fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning', { duration: 7000 })
+        toast('Eintragen fehlgeschlagen', cleanError(err), 'warning', { duration: 7000 })
       }
       openSettings('claude')
     }
@@ -4396,7 +4403,7 @@ http_headers = { "Authorization" = "Bearer ${esc(cs.mcpToken || '')}" }</div>
         await A.invoke('claude:install-extension')
         toast('Claude in Chrome installiert', 'Öffne es über das Symbol in der Werkzeugleiste oder hier.', 'chat')
       } catch (err) {
-        toast('Installation fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning', { duration: 7000 })
+        toast('Installation fehlgeschlagen', cleanError(err), 'warning', { duration: 7000 })
       }
       openSettings('claude')
     }
@@ -4430,6 +4437,81 @@ async function renderUpdateBox () {
   if (chk) chk.onclick = async () => { S.update = { ...u, status: 'checking' }; renderUpdateBox(); S.update = await A.invoke('update:check'); renderUpdateBox() }
   const ins = $('#upd-install', box)
   if (ins) ins.onclick = () => { flushPending(); A.send('update:install') }
+}
+
+// Einstellungen › Sync: einrichten (Ordner + Passphrase), Status, jetzt abgleichen, ausschalten
+
+async function renderSyncBox (draft = {}) {
+  const box = $('#sync-box')
+  if (!box) return
+  let info
+  try { info = await A.invoke('sync:info') } catch { return }
+  if (!$('#sync-box')) return
+  S.sync = info
+  if (info.dir && info.hasPassphrase) {
+    const status = info.status === 'syncing' ? T('Gleicht ab …')
+      : info.status === 'error' ? T('Fehler: {e}', { e: info.error || '' })
+        : info.last ? T('Zuletzt abgeglichen: {t}', { t: new Date(info.last).toLocaleString(I18N.locale, { dateStyle: 'short', timeStyle: 'short' }) }) : T('Noch nicht abgeglichen.')
+    box.innerHTML = `
+      <div class="card"><div class="flex"><span class="status-dot ${info.status === 'error' ? 'warn' : 'ok'}"></span><div class="grow"><div>${T('Sync ist eingerichtet')}</div><div class="muted" style="font-size:12px;word-break:break-all">${esc(info.dir)}</div></div></div>
+        <div class="muted" style="font-size:12px;margin-top:8px;${info.status === 'error' ? 'color:#f87171' : ''}">${esc(status)}</div>
+        <div class="flex" style="margin-top:12px;gap:8px"><button class="btn sm" id="sync-now" ${info.status === 'syncing' ? 'disabled' : ''}>${icon('refresh')} ${T('Jetzt abgleichen')}</button><span class="grow"></span><button class="btn ghost sm" id="sync-off">${T('Sync ausschalten')}</button></div></div>
+      <p class="muted" style="font-size:12px;line-height:1.55">${T('Abgeglichen wird beim Start, alle fünf Minuten und kurz nach Änderungen. Auf weiteren PCs denselben Ordner und dieselbe Passphrase einrichten. Nicht abgeglichen werden Verlauf, offene Tabs, Einstellungen und die Leseliste.')}</p>`
+    $('#sync-now', box).onclick = async () => {
+      try { await A.invoke('sync:run'); toast('Abgeglichen', '', 'cloud', { duration: 1800 }) } catch (err) { toast('Sync fehlgeschlagen', cleanError(err), 'warning', { duration: 7000 }) }
+      renderSyncBox()
+    }
+    $('#sync-off', box).onclick = () => confirmDialog('Sync ausschalten?', 'Dieser PC gleicht nicht mehr ab. Die verschlüsselte Datei im Ordner und deine Daten hier bleiben erhalten.', 'Ausschalten', async () => {
+      settings().syncDir = ''
+      saveSettingsNow()
+      await A.invoke('sync:disable')
+      openSettings('sync')
+    })
+    return
+  }
+  const dir = draft.dir ?? info.dir ?? ''
+  box.innerHTML = `
+    <div class="field"><label>${T('Ordner')}</label>
+      <div class="flex"><input class="input grow" id="sync-dir" value="${esc(dir)}" placeholder="${T('z. B. OneDrive\\Caravel')}" spellcheck="false"><button class="btn ghost" id="sync-pick">${T('Wählen …')}</button></div>
+      ${info.suggestions.length ? `<div class="flex" style="flex-wrap:wrap;gap:6px;margin-top:6px">${info.suggestions.map(s => `<button class="btn ghost sm" data-sug="${esc(s)}">${icon('folder')} ${esc(s.split(/[\\/]/).slice(-2).join('\\'))}</button>`).join('')}</div>` : ''}
+    </div>
+    <div class="field"><label>${T('Passphrase')}</label><input class="input" id="sync-pass" type="password" autocomplete="new-password" placeholder="${T('mindestens 8 Zeichen')}">
+      <span class="hint">${T('Auf allen PCs dieselbe Passphrase verwenden. Sie wird nirgends hochgeladen – geht sie verloren, lässt sich die Sync-Datei nicht mehr öffnen (die Daten auf deinen PCs bleiben).')}</span></div>
+    <div class="flex"><button class="btn" id="sync-setup">${icon('cloud')} ${T('Sync einrichten')}</button></div>`
+  $('#sync-pick', box).onclick = async () => {
+    const picked = await A.invoke('sync:pick-folder', $('#sync-dir').value)
+    if (picked) $('#sync-dir').value = picked
+  }
+  box.querySelectorAll('[data-sug]').forEach(b => { b.onclick = () => { $('#sync-dir').value = b.dataset.sug } })
+  $('#sync-setup', box).onclick = async () => {
+    const d = $('#sync-dir').value.trim()
+    const pass = $('#sync-pass').value
+    const btn = $('#sync-setup')
+    btn.disabled = true
+    btn.textContent = T('Richte ein …')
+    // Ordner auch in den Einstellungen der Oberfläche festhalten (sonst überschreibt sie ihn beim nächsten Speichern)
+    const prev = settings().syncDir
+    settings().syncDir = d
+    saveSettingsNow()
+    try {
+      await A.invoke('sync:configure', d, pass)
+      toast('Sync eingerichtet', T('Abgeglichen mit {dir}', { dir: d }), 'cloud')
+      openSettings('sync')
+    } catch (err) {
+      settings().syncDir = prev || ''
+      saveSettingsNow()
+      toast('Sync nicht eingerichtet', cleanError(err), 'warning', { duration: 8000 })
+      renderSyncBox({ dir: d })
+    }
+  }
+}
+
+// Ergebnis eines Abgleichs übernehmen (Hauptprozess hat den Store schon aktualisiert)
+function applySynced (changed) {
+  for (const k of ['bookmarks', 'notes', 'boosts', 'snapshots']) if (changed[k]) S.data[k] = changed[k]
+  if (changed.bookmarks) { renderFavorites(); updateNav() }
+  if (changed.boosts) updateOmnibox()
+  if (S.panel === 'notes' || S.panel === 'snapshots') renderPanel()
 }
 
 // Einstellungen › Passwörter: Liste mit Suche, Anzeigen, Kopieren, Bearbeiten, Löschen, CSV-Import/-Export
@@ -4470,7 +4552,7 @@ async function renderPasswords (filter = '') {
     try {
       const n = await A.invoke('pw:import')
       if (n !== null) { toast('Passwörter importiert', T('{n} Einträge übernommen.', { n }), 'key'); openSettings('passwords') }
-    } catch (err) { toast('Import fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, ''), 'warning', { duration: 7000 }) }
+    } catch (err) { toast('Import fehlgeschlagen', cleanError(err), 'warning', { duration: 7000 }) }
   }
   $('#pw-export', box).onclick = () => confirmDialog('Passwörter exportieren?', 'Die Datei enthält alle Passwörter unverschlüsselt. Bewahre sie sicher auf und lösche sie nach dem Import.', 'Exportieren', async () => {
     const file = await A.invoke('pw:export')
@@ -4515,7 +4597,7 @@ async function openImportDialog () {
     let res
     try { res = await A.invoke('import:run', src.id, what) } catch (err) {
       $('#im-go').disabled = false
-      return toast('Import fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: (Error: )?/, ''), 'warning', { duration: 8000 })
+      return toast('Import fehlgeschlagen', cleanError(err), 'warning', { duration: 8000 })
     }
     closeModal()
     let nb = 0
@@ -4699,7 +4781,7 @@ async function savePage () {
   try {
     const file = await A.invoke('tab:save-page', t.wcId)
     if (file) toast('Seite gespeichert', file.split(/[\\/]/).pop(), 'download', { actions: [{ label: 'Ordner', run: () => A.send('dl:show', file) }] })
-  } catch (err) { toast('Speichern fehlgeschlagen', String(err.message || err).replace(/^Error invoking remote method[^:]*: /, ''), 'warning') }
+  } catch (err) { toast('Speichern fehlgeschlagen', cleanError(err), 'warning') }
 }
 
 // Strg+O: lokale Datei(en) öffnen
@@ -5164,6 +5246,13 @@ function initGlobalEvents () {
   A.on('cast:error', msg => toast('Streamen fehlgeschlagen', msg, 'warning', { duration: 7000 }))
   A.on('window-fullscreen', on => { S.windowFull = on })
   A.on('agent:event', onAgentEvent)
+  A.on('sync:applied', applySynced)
+  A.on('sync:state', st => {
+    if (S.modalSection === 'sync' && st.status !== 'syncing') renderSyncBox()
+    // Fehler nur einmal melden, nicht bei jedem Fünf-Minuten-Versuch
+    if (st.status === 'error' && st.error !== S.syncError) toast('Sync fehlgeschlagen', st.error, 'warning', { duration: 7000, actions: [{ label: 'Einstellungen', run: () => openSettings('sync') }] })
+    S.syncError = st.status === 'error' ? st.error : null
+  })
 }
 
 function startSleepTimer () {

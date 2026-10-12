@@ -22,6 +22,7 @@ const { BrowserAgent, MODEL: AGENT_MODEL } = require('./agent')
 const { Boosts } = require('./boosts')
 const { FullText } = require('./fulltext')
 const { ReadingList } = require('./readinglist')
+const { FolderSync } = require('./sync')
 const { Updater } = require('./updater')
 const { PasswordStore } = require('./passwords')
 const importer = require('./importer')
@@ -68,6 +69,8 @@ let agent = null
 let boosts = null
 let fulltext = null
 let reading = null
+let folderSync = null
+const SYNCED_KEYS = new Set(['bookmarks', 'notes', 'boosts', 'snapshots'])
 let tabsSession = null
 let privateSession = null
 let updater = null
@@ -864,6 +867,7 @@ function registerIpc () {
       value = { ...value, claudeMcpToken: store.get('settings').claudeMcpToken }
     }
     store.set(key, value)
+    if (SYNCED_KEYS.has(key)) folderSync?.schedule()
     if (key === 'settings') applySettings()
     // Neuer-Tab-Seiten übernehmen Favoriten sowie Design, Name und Suchmaschine sofort
     if (key === 'bookmarks' || key === 'settings') notifyNewtabPages()
@@ -1009,13 +1013,15 @@ function registerIpc () {
   // Passwort-Manager – Oberfläche (Verwaltung)
   ipcMain.handle('pw:list', () => ({ available: passwords.available, items: passwords.list(), never: store.get('pwNever') }))
   ipcMain.handle('pw:reveal', (_e, id) => passwords.reveal(id)?.password ?? null)
-  ipcMain.handle('pw:delete', (_e, id) => { passwords.remove(id); return true })
-  ipcMain.handle('pw:update', (_e, id, data) => passwords.update(id, data || {}))
+  ipcMain.handle('pw:delete', (_e, id) => { passwords.remove(id); folderSync.schedule(); return true })
+  ipcMain.handle('pw:update', (_e, id, data) => { const ok = passwords.update(id, data || {}); folderSync.schedule(); return ok })
   ipcMain.handle('pw:never-remove', (_e, origin) => { store.set('pwNever', store.get('pwNever').filter(o => o !== origin)); return true })
   ipcMain.handle('pw:import', async () => {
     const res = await dialog.showOpenDialog(win, { title: t('Passwörter importieren (CSV)'), properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }] })
     if (res.canceled || !res.filePaths[0]) return null
-    return passwords.importCsv(fs.readFileSync(res.filePaths[0], 'utf8'))
+    const n = passwords.importCsv(fs.readFileSync(res.filePaths[0], 'utf8'))
+    folderSync.schedule()
+    return n
   })
   ipcMain.handle('pw:export', async () => {
     const res = await dialog.showSaveDialog(win, { title: t('Passwörter exportieren (CSV)'), defaultPath: path.join(app.getPath('documents'), 'Caravel-Passwörter.csv'), filters: [{ name: 'CSV', extensions: ['csv'] }] })
@@ -1027,7 +1033,7 @@ function registerIpc () {
     const offer = pwOffers.get(offerId)
     pwOffers.delete(offerId)
     if (!offer) return
-    if (choice === 'save') passwords.upsert(offer)
+    if (choice === 'save') { passwords.upsert(offer); folderSync.schedule() }
     if (choice === 'never') store.set('pwNever', [...new Set([...store.get('pwNever'), offer.origin])])
   })
 
@@ -1206,6 +1212,43 @@ function registerIpc () {
     if (!wc || wc.isDestroyed() || !/^https?:/.test(wc.getURL())) return null
     wc.focus()
     return boosts.pick(wc, t('Element anklicken, das ausgeblendet werden soll · Esc bricht ab'))
+  })
+
+  // Sync über einen Ordner (sync.js)
+  const syncInfo = () => {
+    const home = os.homedir()
+    const suggestions = [process.env.OneDrive, process.env.OneDriveConsumer, path.join(home, 'Dropbox'), path.join(home, 'Google Drive'), path.join(home, 'iCloudDrive')]
+      .filter((d, i, a) => d && a.indexOf(d) === i && fs.existsSync(d)).map(d => path.join(d, 'Caravel'))
+    return { ...folderSync.state, dir: store.get('settings').syncDir || '', hasPassphrase: folderSync.hasPassphrase(), suggestions }
+  }
+  ipcMain.handle('sync:info', syncInfo)
+  ipcMain.handle('sync:pick-folder', async (_e, current) => {
+    const res = await dialog.showOpenDialog(win, { title: t('Ordner für den Sync wählen'), defaultPath: current || process.env.OneDrive || os.homedir(), properties: ['openDirectory', 'createDirectory'] })
+    return res.canceled ? null : res.filePaths[0]
+  })
+  // Einrichten: Passphrase gegen eine vorhandene Sync-Datei prüfen, dann sofort abgleichen
+  ipcMain.handle('sync:configure', async (_e, dir, pass) => {
+    dir = String(dir || '')
+    if (!dir) throw new Error(t('Bitte einen Ordner wählen.'))
+    if (String(pass || '').length < 8) throw new Error(t('Die Passphrase braucht mindestens 8 Zeichen.'))
+    fs.mkdirSync(dir, { recursive: true })
+    const prevDir = store.get('settings').syncDir
+    store.set('settings', { ...store.get('settings'), syncDir: dir })
+    folderSync.setPassphrase(pass)
+    try { folderSync.readRemote() } catch (err) {
+      folderSync.setPassphrase('')
+      store.set('settings', { ...store.get('settings'), syncDir: prevDir || '' })
+      throw err
+    }
+    folderSync.resetBase()
+    await folderSync.run()
+    return syncInfo()
+  })
+  ipcMain.handle('sync:run', async () => { await folderSync.run(); return syncInfo() })
+  ipcMain.handle('sync:disable', () => {
+    folderSync.disable()
+    store.set('settings', { ...store.get('settings'), syncDir: '' })
+    return syncInfo()
   })
 
   // Leseliste: Artikel offline speichern (readinglist.js)
@@ -1623,6 +1666,16 @@ app.whenReady().then(async () => {
 
   updater = new Updater({ send, getSettings: () => store.get('settings') })
   passwords = new PasswordStore(app.getPath('userData'))
+  folderSync = new FolderSync({
+    dataDir: app.getPath('userData'),
+    store,
+    passwords,
+    onApplied: changed => {
+      send('sync:applied', { ...changed, passwords: undefined })
+      if (changed.bookmarks) notifyNewtabPages()
+    },
+    onState: st => send('sync:state', st)
+  })
 
   boosts = new Boosts(() => store.get('boosts'))
   fulltext = new FullText(app.getPath('userData'))
@@ -1669,6 +1722,10 @@ app.whenReady().then(async () => {
   if (initial) pendingUrls.push(initial)
 
   if (store.get('settings').vpnAutoConnect) vpn.connect(vpnConfigFromSettings())
+
+  // Sync: kurz nach dem Start und danach alle fünf Minuten (Änderungen anderer Geräte abholen)
+  folderSync.schedule(6000)
+  setInterval(() => folderSync.run().catch(() => {}), 5 * 60 * 1000)
 
   if (process.env.CARAVEL_DEBUG_SHOT) {
     setTimeout(async () => {
