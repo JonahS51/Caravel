@@ -439,9 +439,31 @@ function activate (id) {
   saveSession()
 }
 
+// Mini-Player: Video mit Ton beim Tab-Wechsel als Bild-im-Bild weiterlaufen lassen (wie Arc/Chrome)
+const PIP_ENTER = `(() => {
+  if (document.pictureInPictureElement) return false;
+  const v = [...document.querySelectorAll('video')].filter(v => !v.paused && !v.ended && v.readyState >= 2 && !v.muted && v.clientWidth >= 200 && !v.disablePictureInPicture)
+    .sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0];
+  if (!v) return false;
+  return v.requestPictureInPicture().then(() => true, () => false);
+})()`
+const PIP_EXIT = 'document.pictureInPictureElement ? document.exitPictureInPicture().then(() => true, () => false) : false'
+
+function miniPlayer (prev, next) {
+  if (next?.miniPlayer && next.ready) {
+    next.miniPlayer = false
+    next.webview.executeJavaScript(PIP_EXIT, true).catch(() => {})
+  }
+  if (!prev || prev === next || !prev.ready || !prev.audible || prev.muted || isVisible(prev) || settings().miniPlayer === false) return
+  prev.webview.executeJavaScript(PIP_ENTER, true).then(ok => { if (ok) prev.miniPlayer = true }).catch(() => {})
+}
+
 function afterActivate () {
   const tab = activeTab()
   if (!tab) return
+  const prev = S.shownTab && S.tabs.get(S.shownTab)
+  S.shownTab = tab.id
+  if (prev !== tab) miniPlayer(prev, tab)
   tab.lastActive = Date.now()
   layout()
   renderTabs()
@@ -4055,6 +4077,7 @@ async function openSettings (section = 'general') {
       ${row(T('Design'), '', `<div class="seg" data-seg="theme">${[['dark', T('Dunkel')], ['light', T('Hell')], ['system', T('System')]].map(([k, l]) => `<button data-v="${k}" class="${st.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
       ${row(T('Websites abdunkeln'), T('Im dunklen Design werden Seiten ohne eigenen Dunkelmodus (z. B. die Google-Suche) automatisch dunkel dargestellt – wie Chromes „Automatischer dunkler Modus für Webinhalte“. Seiten mit eigenem Dunkelmodus bleiben unverändert.'), toggle('autoDarkPages', st.autoDarkPages !== false))}
       ${row(T('Ambient-Farben'), T('Die Oberfläche übernimmt dezent die Markenfarbe der aktuellen Website.'), toggle('ambient', st.ambient))}
+      ${row(T('Mini-Player'), T('Läuft ein Video mit Ton und du wechselst den Tab, spielt es in einem kleinen schwebenden Fenster weiter. Zurück im Tab verschwindet es wieder.'), toggle('miniPlayer', st.miniPlayer !== false))}
       <div class="set-row" style="display:block"><div class="t">${T('Tab-Leiste')}</div><div class="d">${T('Wo und wie die Tabs angezeigt werden.')}</div>
         <div class="layout-pick" data-seg="tabLayout">${[
           ['sidebar', 'Caravel', T('Seitenleiste links'), '<rect x="1" y="1" width="62" height="42" rx="5" class="lp-frame"/><rect x="4" y="4" width="15" height="36" rx="3" class="lp-bar"/><rect x="6" y="9" width="11" height="3" rx="1.5" class="lp-acc"/><rect x="6" y="14" width="11" height="3" rx="1.5" class="lp-dim"/><rect x="6" y="19" width="11" height="3" rx="1.5" class="lp-dim"/><rect x="22" y="4" width="38" height="5" rx="2.5" class="lp-dim"/><rect x="22" y="12" width="38" height="28" rx="3" class="lp-page"/>'],

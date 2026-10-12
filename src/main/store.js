@@ -26,6 +26,7 @@ const DEFAULTS = {
     // KI-Assistent: 'claude' | 'chatgpt' | 'none' (claudeSidebar = Seitenleiste des gewählten Assistenten)
     assistant: 'claude',
     autoDarkPages: true,
+    miniPlayer: true, // Video mit Ton beim Tab-Wechsel als Bild-im-Bild weiterspielen
     tabLayout: 'sidebar', // 'sidebar' | 'chrome' | 'safari'
     showFavbar: true,
     compactUi: false,

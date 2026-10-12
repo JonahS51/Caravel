@@ -902,6 +902,10 @@
     'Unbekannte Quelle': 'Unknown source',
     'Der Verlauf ist gesperrt – bitte den Browser schließen und erneut versuchen.': 'The history is locked – please close the browser and try again.',
 
+    // ---- Mini-Player -----------------------------------------------------------
+    'Mini-Player': 'Mini player',
+    'Läuft ein Video mit Ton und du wechselst den Tab, spielt es in einem kleinen schwebenden Fenster weiter. Zurück im Tab verschwindet es wieder.': 'If a video with sound is playing and you switch tabs, it keeps playing in a small floating window. Back in the tab, it disappears again.',
+
     // ---- Volltextsuche ---------------------------------------------------------
     'Im Seiteninhalt gefunden': 'Found in page content',
     'Seiteninhalte für die Verlaufssuche merken': 'Remember page content for history search',
