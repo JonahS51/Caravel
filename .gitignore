@@ -7,3 +7,7 @@ Thumbs.db
 
 # Lokale Hinweise für Claude, nicht veröffentlichen
 CLAUDE.md
+
+# Cloudflare (web/)
+.wrangler/
+.dev.vars

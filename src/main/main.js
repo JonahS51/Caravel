@@ -22,7 +22,7 @@ const { BrowserAgent, MODEL: AGENT_MODEL } = require('./agent')
 const { Boosts } = require('./boosts')
 const { FullText } = require('./fulltext')
 const { ReadingList } = require('./readinglist')
-const { FolderSync } = require('./sync')
+const { FolderSync, newCode, normalizeCode } = require('./sync')
 const { Updater } = require('./updater')
 const { PasswordStore } = require('./passwords')
 const importer = require('./importer')
@@ -1226,8 +1226,9 @@ function registerIpc () {
     const home = os.homedir()
     const suggestions = [process.env.OneDrive, process.env.OneDriveConsumer, path.join(home, 'Dropbox'), path.join(home, 'Google Drive'), path.join(home, 'iCloudDrive')]
       .filter((d, i, a) => d && a.indexOf(d) === i && fs.existsSync(d)).map(d => path.join(d, 'Caravel'))
-    return { ...folderSync.state, dir: store.get('settings').syncDir || '', hasPassphrase: folderSync.hasPassphrase(), suggestions }
+    return { ...folderSync.state, dir: store.get('settings').syncDir || '', cloud: folderSync.cloud, code: folderSync.cloudCode(), hasPassphrase: folderSync.hasPassphrase(), suggestions }
   }
+  const setSyncTarget = (syncDir, syncCloud) => store.set('settings', { ...store.get('settings'), syncDir, syncCloud })
   ipcMain.handle('sync:info', syncInfo)
   ipcMain.handle('sync:pick-folder', async (_e, current) => {
     const res = await dialog.showOpenDialog(win, { title: t('Ordner für den Sync wählen'), defaultPath: current || process.env.OneDrive || os.homedir(), properties: ['openDirectory', 'createDirectory'] })
@@ -1239,12 +1240,31 @@ function registerIpc () {
     if (!dir) throw new Error(t('Bitte einen Ordner wählen.'))
     if (String(pass || '').length < 8) throw new Error(t('Die Passphrase braucht mindestens 8 Zeichen.'))
     fs.mkdirSync(dir, { recursive: true })
-    const prevDir = store.get('settings').syncDir
-    store.set('settings', { ...store.get('settings'), syncDir: dir })
+    const prev = store.get('settings')
+    setSyncTarget(dir, false)
     folderSync.setPassphrase(pass)
-    try { folderSync.readRemote() } catch (err) {
+    try { await folderSync.readRemote() } catch (err) {
       folderSync.setPassphrase('')
-      store.set('settings', { ...store.get('settings'), syncDir: prevDir || '' })
+      setSyncTarget(prev.syncDir || '', !!prev.syncCloud)
+      throw err
+    }
+    folderSync.resetBase()
+    await folderSync.run()
+    return syncInfo()
+  })
+  // Caravel Cloud: ohne Code wird ein neuer erzeugt (erstes Gerät), sonst der eines anderen Geräts übernommen
+  ipcMain.handle('sync:configure-cloud', async (_e, code) => {
+    const norm = normalizeCode(code ?? newCode())
+    if (!norm) throw new Error(t('Der Sync-Code ist ungültig – er hat 25 Zeichen, z. B. ABCDE-12345-…'))
+    const prev = store.get('settings')
+    setSyncTarget('', true)
+    folderSync.setPassphrase(norm)
+    try {
+      const remote = await folderSync.readRemote()
+      if (code != null && !remote.payload) throw new Error(t('Zu diesem Sync-Code gibt es keine Daten. Bitte den Code auf dem anderen Gerät prüfen.'))
+    } catch (err) {
+      folderSync.setPassphrase('')
+      setSyncTarget(prev.syncDir || '', !!prev.syncCloud)
       throw err
     }
     folderSync.resetBase()
@@ -1252,9 +1272,10 @@ function registerIpc () {
     return syncInfo()
   })
   ipcMain.handle('sync:run', async () => { await folderSync.run(); return syncInfo() })
-  ipcMain.handle('sync:disable', () => {
+  ipcMain.handle('sync:disable', async (_e, deleteRemote) => {
+    if (deleteRemote && folderSync.cloud) await folderSync.deleteCloud()
     folderSync.disable()
-    store.set('settings', { ...store.get('settings'), syncDir: '' })
+    setSyncTarget('', false)
     return syncInfo()
   })
 
@@ -1739,7 +1760,7 @@ app.whenReady().then(async () => {
 
   // Sync: kurz nach dem Start und danach alle fünf Minuten (Änderungen anderer Geräte abholen)
   folderSync.schedule(6000)
-  setInterval(() => folderSync.run().catch(() => {}), 5 * 60 * 1000)
+  setInterval(() => folderSync.periodic().catch(() => {}), 5 * 60 * 1000)
 
   if (process.env.CARAVEL_DEBUG_SHOT) {
     setTimeout(async () => {

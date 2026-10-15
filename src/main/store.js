@@ -22,6 +22,7 @@ const DEFAULTS = {
     ],
     restoreSession: true,
     syncDir: '', // Ordner für den verschlüsselten Sync (leer = aus), siehe sync.js
+    syncCloud: false, // stattdessen über den Caravel-Sync-Server (nur ohne syncDir)
     fullTextIndex: true, // Seiteninhalte für die Verlaufssuche lokal merken
     userName: '',
     sidebarCollapsed: false,

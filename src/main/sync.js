@@ -1,19 +1,40 @@
-// Sync über einen Ordner (z. B. OneDrive, Dropbox, Netzlaufwerk): Favoriten, Seiten-Notizen, Boosts,
-// Zeitkapseln und Passwörter landen verschlüsselt in <Ordner>/Caravel-Sync.dat.
+// Sync von Favoriten, Seiten-Notizen, Boosts, Zeitkapseln und Passwörtern – auf zwei Wegen:
+//  • Ordner (z. B. OneDrive, Dropbox, Netzlaufwerk): alles landet verschlüsselt in <Ordner>/Caravel-Sync.dat
+//  • Caravel Cloud: dieselbe verschlüsselte Datei liegt auf dem Sync-Server (web/functions/api/sync)
 //
 // Verschlüsselung: AES-256-GCM, Schlüssel per scrypt aus einer Passphrase, die nur auf den Geräten
-// liegt (mit safeStorage gesichert). Zusammenführen: Drei-Wege-Abgleich gegen den Stand des letzten
-// Syncs (sync-base.bin) – so werden Löschungen erkannt und Änderungen beider Seiten übernommen.
+// liegt (mit safeStorage gesichert). In der Cloud ist die Passphrase ein zufälliger Sync-Code; aus ihm
+// werden auch Konto-ID und Zugriffstoken abgeleitet – ein Benutzerkonto gibt es nicht.
+// Zusammenführen: Drei-Wege-Abgleich gegen den Stand des letzten Syncs (sync-base.bin) – so werden
+// Löschungen erkannt und Änderungen beider Seiten übernommen.
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const crypto = require('node:crypto')
-const { safeStorage } = require('electron')
+const { safeStorage, net } = require('electron')
 const { t } = require('../shared/i18n')
 
 const FILE_NAME = 'Caravel-Sync.dat'
 const KEYS = ['bookmarks', 'notes', 'boosts', 'snapshots', 'passwords']
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }
+const SERVER = (process.env.CARAVEL_SYNC_URL || 'https://caravel-browser.pages.dev').replace(/\/+$/, '')
+const CLOUD_INTERVAL = 10 * 60 * 1000 // seltener als beim Ordner: jede Abfrage zählt gegen das Server-Kontingent
+
+// Sync-Code: 25 Zeichen Crockford-Base32 (125 Bit), in Fünfergruppen geschrieben
+const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+function newCode () {
+  const bytes = crypto.randomBytes(25)
+  return [...bytes].map(b => CODE_ALPHABET[b & 31]).join('').match(/.{5}/g).join('-')
+}
+// Tippfehler-tolerant: Groß/klein, Leerzeichen und Bindestriche egal, O→0, I/L→1, U→V
+function normalizeCode (code) {
+  const s = String(code || '').toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1').replace(/U/g, 'V')
+  return s.length === 25 && [...s].every(c => CODE_ALPHABET.includes(c)) ? s : null
+}
+const formatCode = code => code.match(/.{5}/g).join('-')
+const sha256 = text => crypto.createHash('sha256').update(text).digest('hex')
+
+class Conflict extends Error {}
 
 // JSON mit sortierten Schlüsseln – gleiche Daten ergeben auf jedem Gerät denselben Text
 function stable (v) {
@@ -108,8 +129,50 @@ class FolderSync {
   }
 
   get dir () { return this.store.get('settings').syncDir || '' }
-  get enabled () { return !!this.dir && this.hasPassphrase() }
+  get cloud () { return !this.dir && !!this.store.get('settings').syncCloud }
+  get enabled () { return (!!this.dir || this.cloud) && this.hasPassphrase() }
   get remoteFile () { return path.join(this.dir, FILE_NAME) }
+
+  // Cloud: Konto-ID und Token aus dem Sync-Code (der Server erfährt den Code selbst nie)
+  cloudAuth () {
+    const code = this.passphrase() || ''
+    return { url: `${SERVER}/api/sync/${sha256('caravel-sync-id:' + code).slice(0, 32)}`, token: sha256('caravel-sync-token:' + code) }
+  }
+
+  async cloudFetch (method, headers = {}, body, retry = true) {
+    const { url, token } = this.cloudAuth()
+    let res
+    try {
+      res = await net.fetch(url, { method, body, cache: 'no-store', headers: { authorization: `Bearer ${token}`, ...headers } })
+    } catch {
+      res = null
+    }
+    // Kurze Aussetzer einmal wiederholen – gefahrlos, weil Schreiben per If-Match an die Version gebunden ist
+    if (retry && (!res || res.status >= 500)) {
+      await new Promise(r => setTimeout(r, 1500))
+      return this.cloudFetch(method, headers, body, false)
+    }
+    if (!res) throw new Error(t('Der Sync-Server ist nicht erreichbar.'))
+    if (res.status === 401 || res.status === 403) throw new Error(t('Der Sync-Server hat den Sync-Code abgelehnt.'))
+    if (res.status === 413) throw new Error(t('Die Sync-Daten sind zu groß für den Sync-Server.'))
+    if (res.status === 429 || res.status >= 500) throw new Error(t('Der Sync-Server ist gerade überlastet – später erneut versuchen.'))
+    return res
+  }
+
+  // Sync-Code zum Einrichten weiterer Geräte
+  cloudCode () { return this.cloud && this.hasPassphrase() ? formatCode(this.passphrase() || '') : null }
+
+  // Alle Daten dieses Sync-Codes vom Server löschen
+  async deleteCloud () {
+    const res = await this.cloudFetch('DELETE')
+    if (!res.ok) throw new Error(t('Der Sync-Server ist nicht erreichbar.'))
+  }
+
+  // Regelmäßiger Abgleich (alle fünf Minuten aufgerufen); die Cloud nur alle zehn Minuten
+  periodic () {
+    if (this.cloud && Date.now() - this.state.last < CLOUD_INTERVAL - 30000) return Promise.resolve(false)
+    return this.run()
+  }
 
   hasPassphrase () { return fs.existsSync(this.keyFile) }
   passphrase () { try { return safeStorage.decryptString(fs.readFileSync(this.keyFile)) } catch { return null } }
@@ -156,17 +219,41 @@ class FolderSync {
     } catch { throw new Error(t('Die Passphrase passt nicht zur Sync-Datei in diesem Ordner.')) }
   }
 
-  readRemote () {
-    let text
-    try { text = fs.readFileSync(this.remoteFile, 'utf8') } catch (err) {
-      if (err.code === 'ENOENT') return { salt: crypto.randomBytes(16), payload: null, stamp: null }
-      throw err
+  // Entfernter Stand: { salt, payload, stamp } – stamp erkennt beim Schreiben, ob ein anderes Gerät dazwischenkam
+  async readRemote () {
+    let text, stamp
+    if (this.cloud) {
+      const res = await this.cloudFetch('GET')
+      if (res.status === 404) return { salt: crypto.randomBytes(16), payload: null, stamp: null }
+      if (!res.ok) throw new Error(t('Der Sync-Server ist nicht erreichbar.'))
+      text = await res.text()
+      stamp = res.headers.get('etag')
+    } else {
+      try { text = fs.readFileSync(this.remoteFile, 'utf8') } catch (err) {
+        if (err.code === 'ENOENT') return { salt: crypto.randomBytes(16), payload: null, stamp: null }
+        throw err
+      }
+      stamp = sha256(text)
     }
-    return { ...this.decrypt(text), stamp: crypto.createHash('sha256').update(text).digest('hex') }
+    return { ...this.decrypt(text), stamp }
   }
 
   remoteStamp () {
     try { return crypto.createHash('sha256').update(fs.readFileSync(this.remoteFile)).digest('hex') } catch { return null }
+  }
+
+  // Schreiben nur, wenn der entfernte Stand noch der gelesene ist – sonst Conflict
+  async writeRemote (text, stamp) {
+    if (this.cloud) {
+      const res = await this.cloudFetch('PUT', { 'content-type': 'application/json', ...(stamp ? { 'if-match': stamp } : { 'if-none-match': '*' }) }, text)
+      if (res.status === 412) throw new Conflict()
+      if (!res.ok) throw new Error(t('Der Sync-Server ist nicht erreichbar.'))
+      return
+    }
+    if (this.remoteStamp() !== stamp) throw new Conflict()
+    const tmp = this.remoteFile + '.' + process.pid + '.tmp'
+    fs.writeFileSync(tmp, text)
+    fs.renameSync(tmp, this.remoteFile)
   }
 
   readBase () {
@@ -202,10 +289,10 @@ class FolderSync {
   async doRun (attempt = 0) {
     this.setState({ status: 'syncing', error: null })
     try {
-      if (!fs.existsSync(this.dir)) throw new Error(t('Der Sync-Ordner ist nicht erreichbar.'))
+      if (!this.cloud && !fs.existsSync(this.dir)) throw new Error(t('Der Sync-Ordner ist nicht erreichbar.'))
+      const remote = await this.readRemote()
       const before = this.local()
       const base = this.readBase()
-      const remote = this.readRemote()
       const rdata = remote.payload?.data || {}
       const merged = {
         bookmarks: merge3(before.bookmarks, base.bookmarks, rdata.bookmarks),
@@ -231,15 +318,13 @@ class FolderSync {
       if (Object.keys(changed).length) this.onApplied?.(changed)
 
       if (!remote.payload || !same(merged, rdata)) {
-        // Hat ein anderes Gerät inzwischen geschrieben, erst dessen Stand übernehmen
-        if (this.remoteStamp() !== remote.stamp) {
+        const text = this.encrypt({ v: 1, updated: Date.now(), device: os.hostname(), data: merged }, remote.salt)
+        try { await this.writeRemote(text, remote.stamp) } catch (err) {
+          if (!(err instanceof Conflict)) throw err
+          // Ein anderes Gerät hat inzwischen geschrieben: erst dessen Stand übernehmen
           if (attempt < 3) return this.doRun(attempt + 1)
           throw new Error(t('Die Sync-Datei wird gerade von einem anderen Gerät geschrieben.'))
         }
-        const text = this.encrypt({ v: 1, updated: Date.now(), device: os.hostname(), data: merged }, remote.salt)
-        const tmp = this.remoteFile + '.' + process.pid + '.tmp'
-        fs.writeFileSync(tmp, text)
-        fs.renameSync(tmp, this.remoteFile)
       }
       this.writeBase(merged)
       this.setState({ status: 'idle', last: Date.now(), error: null, changed: Object.keys(changed) })
@@ -251,4 +336,4 @@ class FolderSync {
   }
 }
 
-module.exports = { FolderSync, merge3, bookmarksToMap, bookmarksFromMap, FILE_NAME }
+module.exports = { FolderSync, merge3, bookmarksToMap, bookmarksFromMap, newCode, normalizeCode, FILE_NAME }

@@ -41,7 +41,7 @@ registriert Caravel in den Windows-„Standard-Apps“ als Browser. Das installi
 | **Leser-Modus mit Vorlesen**, **Seite als Markdown kopieren** | `F9`, Rechtsklick |
 | **Leseliste** – Artikel samt Bildern offline speichern und später ohne Internet lesen | Symbol im Leser-Modus, Rechtsklick |
 | **Screenshot** – Bereich aufziehen, sichtbarer Bereich oder ganze Seite | `Strg+Umschalt+X` |
-| **Sync über einen Ordner** (OneDrive, Dropbox …) – Favoriten, Notizen, Boosts, Zeitkapseln, Passwörter; mit eigener Passphrase verschlüsselt | Einstellungen › Sync |
+| **Sync** über **Caravel Cloud** (ohne Konto, per Sync-Code) oder **einen Ordner** (OneDrive, Dropbox …) – Favoriten, Notizen, Boosts, Zeitkapseln, Passwörter; Ende-zu-Ende verschlüsselt | Einstellungen › Sync |
 | **Chrome-Erweiterungen** aus dem Chrome Web Store | Web Store › „Hinzufügen“ |
 | **Chromecast wie in Chrome** – Cast-Knöpfe von Webseiten (z. B. YouTube), Tab und Bildschirm spiegeln, Video der Seite, lokale Dateien; alle Geräte mit Status, Lautstärke und Steuerung | Cast-Symbol, ⋮ › Streamen, Rechtsklick |
 | **Automatische Updates** über GitHub-Releases (laden im Hintergrund, installieren beim Beenden) | Einstellungen › Über Caravel |
@@ -177,7 +177,7 @@ Caravel as a browser in Windows “Default apps”. The installed program does n
 | **Reader mode with read-aloud**, **copy page as Markdown** | `F9`, right-click |
 | **Reading list** – save articles including images and read them later without internet | Icon in reader mode, right-click |
 | **Screenshot** – drag an area, visible area or full page | `Ctrl+Shift+X` |
-| **Sync via a folder** (OneDrive, Dropbox …) – favorites, notes, boosts, time capsules, passwords; encrypted with your own passphrase | Settings › Sync |
+| **Sync** via **Caravel Cloud** (no account, just a sync code) or **a folder** (OneDrive, Dropbox …) – favorites, notes, boosts, time capsules, passwords; end-to-end encrypted | Settings › Sync |
 | **Chrome extensions** from the Chrome Web Store | Web Store › “Add” |
 | **Chromecast like in Chrome** – cast buttons on websites (e.g. YouTube), mirror a tab or the screen, the page’s video, local files; all devices with status, volume and controls | Cast icon, ⋮ › Cast, right-click |
 | **Automatic updates** via GitHub releases (downloaded in the background, installed on quit) | Settings › About Caravel |

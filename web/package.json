@@ -1,0 +1,17 @@
+{
+  "name": "caravel-web",
+  "private": true,
+  "description": "Website und Cloud-Sync für Caravel (Cloudflare Pages + D1)",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "deploy": "wrangler pages deploy",
+    "db:init": "wrangler d1 execute caravel-sync --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute caravel-sync --local --file=schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261012.1": true
+  }
+}

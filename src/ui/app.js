@@ -4307,7 +4307,7 @@ async function openSettings (section = 'general') {
       ${row(T('Passwörter speichern anbieten'), T('Nach einer Anmeldung fragt Caravel, ob die Zugangsdaten gespeichert werden sollen. Sie werden mit deinem Windows-Konto verschlüsselt und nur nach einem Klick im Auswahlmenü am Eingabefeld ausgefüllt.'), toggle('passwordsEnabled', st.passwordsEnabled !== false))}
       <div id="pw-box"><div class="muted" style="padding:14px 0">${T('Wird geladen …')}</div></div>`,
     sync: `<h3>${T('Sync')}</h3>
-      <p class="muted" style="margin-top:0;line-height:1.55">${T('Hält Favoriten, Seiten-Notizen, Boosts, Zeitkapseln und Passwörter auf mehreren PCs gleich – über einen Ordner, den du ohnehin synchronisierst (OneDrive, Dropbox, Google Drive, Netzlaufwerk). Caravel legt dort eine einzige Datei ab, verschlüsselt mit deiner Passphrase (AES-256). Ohne die Passphrase kann niemand sie lesen – auch der Cloud-Anbieter nicht.')}</p>
+      <p class="muted" style="margin-top:0;line-height:1.55">${T('Hält Favoriten, Seiten-Notizen, Boosts, Zeitkapseln und Passwörter auf mehreren PCs gleich – über Caravel Cloud oder einen Ordner, den du ohnehin synchronisierst (OneDrive, Dropbox, Netzlaufwerk). Alles wird auf dem Gerät verschlüsselt (AES-256), bevor es den PC verlässt – niemand außer dir kann es lesen.')}</p>
       <div id="sync-box"><div class="muted" style="padding:14px 0">${T('Wird geladen …')}</div></div>`,
     appearance: `<h3>${T('Darstellung')}</h3>
       ${row(T('Design'), '', `<div class="seg" data-seg="theme">${[['dark', T('Dunkel')], ['light', T('Hell')], ['system', T('System')]].map(([k, l]) => `<button data-v="${k}" class="${st.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
@@ -4573,7 +4573,15 @@ async function renderUpdateBox () {
   if (ins) ins.onclick = () => { flushPending(); A.send('update:install') }
 }
 
-// Einstellungen › Sync: einrichten (Ordner + Passphrase), Status, jetzt abgleichen, ausschalten
+// Einstellungen › Sync: einrichten (Caravel Cloud mit Sync-Code oder Ordner + Passphrase), Status,
+// jetzt abgleichen, ausschalten
+
+// Ziel des Syncs auch in den Einstellungen der Oberfläche festhalten (sonst überschreibt sie es beim nächsten Speichern)
+function setSyncSettings (syncDir, syncCloud) {
+  settings().syncDir = syncDir
+  settings().syncCloud = syncCloud
+  saveSettingsNow()
+}
 
 async function renderSyncBox (draft = {}) {
   const box = $('#sync-box')
@@ -4582,29 +4590,62 @@ async function renderSyncBox (draft = {}) {
   try { info = await A.invoke('sync:info') } catch { return }
   if (!$('#sync-box')) return
   S.sync = info
-  if (info.dir && info.hasPassphrase) {
+  if ((info.dir || info.cloud) && info.hasPassphrase) {
     const status = info.status === 'syncing' ? T('Gleicht ab …')
       : info.status === 'error' ? T('Fehler: {e}', { e: info.error || '' })
         : info.last ? T('Zuletzt abgeglichen: {t}', { t: new Date(info.last).toLocaleString(I18N.locale, { dateStyle: 'short', timeStyle: 'short' }) }) : T('Noch nicht abgeglichen.')
+    const where = info.cloud ? T('Caravel Cloud') : info.dir
     box.innerHTML = `
-      <div class="card"><div class="flex"><span class="status-dot ${info.status === 'error' ? 'warn' : 'ok'}"></span><div class="grow"><div>${T('Sync ist eingerichtet')}</div><div class="muted" style="font-size:12px;word-break:break-all">${esc(info.dir)}</div></div></div>
+      <div class="card"><div class="flex"><span class="status-dot ${info.status === 'error' ? 'warn' : 'ok'}"></span><div class="grow"><div>${T('Sync ist eingerichtet')}</div><div class="muted" style="font-size:12px;word-break:break-all">${esc(where)}</div></div></div>
         <div class="muted" style="font-size:12px;margin-top:8px;${info.status === 'error' ? 'color:#f87171' : ''}">${esc(status)}</div>
-        <div class="flex" style="margin-top:12px;gap:8px"><button class="btn sm" id="sync-now" ${info.status === 'syncing' ? 'disabled' : ''}>${icon('refresh')} ${T('Jetzt abgleichen')}</button><span class="grow"></span><button class="btn ghost sm" id="sync-off">${T('Sync ausschalten')}</button></div></div>
-      <p class="muted" style="font-size:12px;line-height:1.55">${T('Abgeglichen wird beim Start, alle fünf Minuten und kurz nach Änderungen. Auf weiteren PCs denselben Ordner und dieselbe Passphrase einrichten. Nicht abgeglichen werden Verlauf, offene Tabs, Einstellungen und die Leseliste.')}</p>`
+        ${info.cloud ? `<div id="sync-code-row" class="flex" style="margin-top:12px;gap:8px;display:none"><code class="grow" style="font-size:14px;letter-spacing:.04em;user-select:all">${esc(info.code || '')}</code><button class="btn ghost sm" id="sync-copy">${icon('copy')} ${T('Kopieren')}</button></div>` : ''}
+        <div class="flex" style="margin-top:12px;gap:8px"><button class="btn sm" id="sync-now" ${info.status === 'syncing' ? 'disabled' : ''}>${icon('refresh')} ${T('Jetzt abgleichen')}</button>${info.cloud ? `<button class="btn ghost sm" id="sync-show">${T('Sync-Code anzeigen')}</button>` : ''}<span class="grow"></span><button class="btn ghost sm" id="sync-off">${T('Sync ausschalten')}</button></div></div>
+      <p class="muted" style="font-size:12px;line-height:1.55">${info.cloud
+        ? T('Abgeglichen wird beim Start, alle zehn Minuten und kurz nach Änderungen. Auf weiteren PCs „Mit Sync-Code verbinden“ wählen und diesen Code eingeben. Nicht abgeglichen werden Verlauf, offene Tabs, Einstellungen und die Leseliste.')
+        : T('Abgeglichen wird beim Start, alle fünf Minuten und kurz nach Änderungen. Auf weiteren PCs denselben Ordner und dieselbe Passphrase einrichten. Nicht abgeglichen werden Verlauf, offene Tabs, Einstellungen und die Leseliste.')}
+        ${info.cloud ? `<a href="#" id="sync-wipe">${T('Daten vom Sync-Server löschen …')}</a>` : ''}</p>`
     $('#sync-now', box).onclick = async () => {
       try { await A.invoke('sync:run'); toast('Abgeglichen', '', 'cloud', { duration: 1800 }) } catch (err) { toast('Sync fehlgeschlagen', cleanError(err), 'warning', { duration: 7000 }) }
       renderSyncBox()
     }
-    $('#sync-off', box).onclick = () => confirmDialog('Sync ausschalten?', 'Dieser PC gleicht nicht mehr ab. Die verschlüsselte Datei im Ordner und deine Daten hier bleiben erhalten.', 'Ausschalten', async () => {
-      settings().syncDir = ''
-      saveSettingsNow()
+    if (info.cloud) {
+      $('#sync-show', box).onclick = e => {
+        const row = $('#sync-code-row', box)
+        const show = row.style.display === 'none'
+        row.style.display = show ? 'flex' : 'none'
+        e.currentTarget.textContent = T(show ? 'Sync-Code ausblenden' : 'Sync-Code anzeigen')
+      }
+      $('#sync-copy', box).onclick = () => { A.send('clipboard:write', info.code || ''); toast('Kopiert', '', 'copy', { duration: 1500 }) }
+      $('#sync-wipe', box).onclick = e => {
+        e.preventDefault()
+        confirmDialog('Daten vom Sync-Server löschen?', 'Die verschlüsselten Daten werden vom Server entfernt und dieser PC gleicht nicht mehr ab. Andere Geräte mit demselben Sync-Code laden sie beim nächsten Abgleich wieder hoch, solange dort Sync eingeschaltet ist. Deine Daten auf diesem PC bleiben erhalten.', 'Löschen', async () => {
+          try { await A.invoke('sync:disable', true) } catch (err) { toast('Löschen fehlgeschlagen', cleanError(err), 'warning', { duration: 7000 }); return }
+          setSyncSettings('', false)
+          openSettings('sync')
+        })
+      }
+    }
+    $('#sync-off', box).onclick = () => confirmDialog('Sync ausschalten?', info.cloud
+      ? 'Dieser PC gleicht nicht mehr ab. Die verschlüsselten Daten auf dem Sync-Server und deine Daten hier bleiben erhalten.'
+      : 'Dieser PC gleicht nicht mehr ab. Die verschlüsselte Datei im Ordner und deine Daten hier bleiben erhalten.', 'Ausschalten', async () => {
+      setSyncSettings('', false)
       await A.invoke('sync:disable')
       openSettings('sync')
     })
     return
   }
-  const dir = draft.dir ?? info.dir ?? ''
-  box.innerHTML = `
+  const mode = draft.mode || 'cloud'
+  const seg = `<div class="seg" id="sync-mode" style="margin-bottom:16px">${[['cloud', T('Caravel Cloud')], ['folder', T('Ordner')]].map(([k, l]) => `<button data-v="${k}" class="${mode === k ? 'on' : ''}">${l}</button>`).join('')}</div>`
+  if (mode === 'cloud') {
+    box.innerHTML = `${seg}
+      <p class="muted" style="margin-top:0;font-size:12px;line-height:1.55">${T('Ohne Konto und ohne E-Mail: Caravel erzeugt einen Sync-Code, der deine Geräte verbindet. Aus ihm wird auch der Schlüssel abgeleitet – der Server bekommt ihn nie zu sehen und speichert nur verschlüsselte Daten.')}</p>
+      <div class="flex" style="margin-bottom:20px"><button class="btn" id="sync-cloud-new">${icon('cloud')} ${T('Sync einrichten')}</button></div>
+      <div class="field"><label>${T('Mit Sync-Code verbinden')}</label>
+        <div class="flex"><input class="input grow" id="sync-code" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" spellcheck="false" autocomplete="off" value="${esc(draft.code || '')}"><button class="btn ghost" id="sync-cloud-join">${T('Verbinden')}</button></div>
+        <span class="hint">${T('Den Code findest du auf einem bereits eingerichteten Gerät unter Einstellungen › Sync › „Sync-Code anzeigen“.')}</span></div>`
+  } else {
+    const dir = draft.dir ?? info.dir ?? ''
+    box.innerHTML = `${seg}
     <div class="field"><label>${T('Ordner')}</label>
       <div class="flex"><input class="input grow" id="sync-dir" value="${esc(dir)}" placeholder="${T('z. B. OneDrive\\Caravel')}" spellcheck="false"><button class="btn ghost" id="sync-pick">${T('Wählen …')}</button></div>
       ${info.suggestions.length ? `<div class="flex" style="flex-wrap:wrap;gap:6px;margin-top:6px">${info.suggestions.map(s => `<button class="btn ghost sm" data-sug="${esc(s)}">${icon('folder')} ${esc(s.split(/[\\/]/).slice(-2).join('\\'))}</button>`).join('')}</div>` : ''}
@@ -4612,31 +4653,45 @@ async function renderSyncBox (draft = {}) {
     <div class="field"><label>${T('Passphrase')}</label><input class="input" id="sync-pass" type="password" autocomplete="new-password" placeholder="${T('mindestens 8 Zeichen')}">
       <span class="hint">${T('Auf allen PCs dieselbe Passphrase verwenden. Sie wird nirgends hochgeladen – geht sie verloren, lässt sich die Sync-Datei nicht mehr öffnen (die Daten auf deinen PCs bleiben).')}</span></div>
     <div class="flex"><button class="btn" id="sync-setup">${icon('cloud')} ${T('Sync einrichten')}</button></div>`
+  }
+  box.querySelectorAll('#sync-mode button').forEach(b => { b.onclick = () => renderSyncBox({ ...draft, mode: b.dataset.v }) })
+
+  // Einrichten mit Fehlerbehandlung; die Einstellungen der Oberfläche vorher setzen, bei Fehler zurück
+  const setup = async (btn, syncDir, syncCloud, invoke, done, again) => {
+    btn.disabled = true
+    btn.textContent = T('Richte ein …')
+    setSyncSettings(syncDir, syncCloud)
+    try {
+      await invoke()
+      toast('Sync eingerichtet', done, 'cloud')
+      openSettings('sync')
+    } catch (err) {
+      setSyncSettings('', false)
+      toast('Sync nicht eingerichtet', cleanError(err), 'warning', { duration: 8000 })
+      renderSyncBox(again)
+    }
+  }
+
+  if (mode === 'cloud') {
+    $('#sync-cloud-new', box).onclick = e => setup(e.currentTarget, '', true, () => A.invoke('sync:configure-cloud', null),
+      T('Unter „Sync-Code anzeigen“ findest du den Code für deine anderen Geräte.'), { mode })
+    const join = () => {
+      const code = $('#sync-code').value.trim()
+      setup($('#sync-cloud-join'), '', true, () => A.invoke('sync:configure-cloud', code), T('Mit Caravel Cloud abgeglichen.'), { mode, code })
+    }
+    $('#sync-cloud-join', box).onclick = join
+    $('#sync-code', box).onkeydown = e => { if (e.key === 'Enter') join() }
+    return
+  }
   $('#sync-pick', box).onclick = async () => {
     const picked = await A.invoke('sync:pick-folder', $('#sync-dir').value)
     if (picked) $('#sync-dir').value = picked
   }
   box.querySelectorAll('[data-sug]').forEach(b => { b.onclick = () => { $('#sync-dir').value = b.dataset.sug } })
-  $('#sync-setup', box).onclick = async () => {
+  $('#sync-setup', box).onclick = e => {
     const d = $('#sync-dir').value.trim()
     const pass = $('#sync-pass').value
-    const btn = $('#sync-setup')
-    btn.disabled = true
-    btn.textContent = T('Richte ein …')
-    // Ordner auch in den Einstellungen der Oberfläche festhalten (sonst überschreibt sie ihn beim nächsten Speichern)
-    const prev = settings().syncDir
-    settings().syncDir = d
-    saveSettingsNow()
-    try {
-      await A.invoke('sync:configure', d, pass)
-      toast('Sync eingerichtet', T('Abgeglichen mit {dir}', { dir: d }), 'cloud')
-      openSettings('sync')
-    } catch (err) {
-      settings().syncDir = prev || ''
-      saveSettingsNow()
-      toast('Sync nicht eingerichtet', cleanError(err), 'warning', { duration: 8000 })
-      renderSyncBox({ dir: d })
-    }
+    setup(e.currentTarget, d, false, () => A.invoke('sync:configure', d, pass), T('Abgeglichen mit {dir}', { dir: d }), { mode, dir: d })
   }
 }
 

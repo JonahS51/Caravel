@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caravel – Browser für Windows</title>
+<meta name="description" content="Caravel ist ein Chromium-Browser für Windows mit Werbeblocker, kostenlosem VPN, KI-Seitenleiste, Chrome-Erweiterungen und verschlüsseltem Sync.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta property="og:title" content="Caravel – Browser für Windows">
+<meta property="og:description" content="Chromium-Browser mit Werbeblocker, kostenlosem VPN, KI-Seitenleiste und verschlüsseltem Sync.">
+<meta property="og:image" content="/icon.png">
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-alt: #f6f7f9;
+    --text: #1d1f23;
+    --muted: #5f6570;
+    --line: #e3e5e9;
+    --accent: #2563eb;
+    --accent-hover: #1d4fd7;
+    --accent-text: #ffffff;
+    --code: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181b;
+      --bg-alt: #1e2024;
+      --text: #e8eaed;
+      --muted: #9aa0a8;
+      --line: #2e3136;
+      --accent: #4f8cf7;
+      --accent-hover: #6a9ef8;
+      --accent-text: #0d1117;
+      --code: #26292e;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  header.top { border-bottom: 1px solid var(--line); }
+  header.top .wrap { display: flex; align-items: center; height: 56px; gap: 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; font-size: 16px; }
+  .brand:hover { text-decoration: none; }
+  .brand img { width: 26px; height: 26px; }
+  nav.links { display: flex; gap: 20px; margin-left: auto; font-size: 14px; }
+  nav.links a { color: var(--muted); }
+  nav.links a:hover { color: var(--text); text-decoration: none; }
+
+  .hero { padding: 72px 0 64px; display: grid; grid-template-columns: 1fr auto; gap: 48px; align-items: center; }
+  .hero h1 { font-size: 44px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 16px; font-weight: 650; }
+  .hero p.lead { font-size: 18px; color: var(--muted); margin: 0 0 32px; max-width: 560px; }
+  .hero .logo { width: 220px; height: 220px; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    height: 44px; padding: 0 22px; border-radius: 6px;
+    background: var(--accent); color: var(--accent-text);
+    font-weight: 600; font-size: 15px;
+  }
+  .btn:hover { background: var(--accent-hover); text-decoration: none; }
+  .btn svg { width: 18px; height: 18px; }
+  .meta { color: var(--muted); font-size: 13px; }
+
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  section.alt { background: var(--bg-alt); }
+  section h2 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 8px; font-weight: 650; }
+  section p.intro { color: var(--muted); margin: 0 0 36px; max-width: 640px; }
+
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px 40px; }
+  .features h3 { font-size: 15px; margin: 0 0 6px; font-weight: 600; }
+  .features p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+  .split ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .split li { margin: 6px 0; }
+  .split li strong { color: var(--text); font-weight: 600; }
+  kbd, code { font-family: Consolas, "SF Mono", monospace; font-size: 13px; background: var(--code); border-radius: 4px; padding: 1px 6px; }
+
+  .release { border-top: 1px solid var(--line); padding: 20px 0; }
+  .release:first-child { border-top: 0; padding-top: 0; }
+  .release header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .release h3 { font-size: 16px; margin: 0; font-weight: 600; }
+  .release time { color: var(--muted); font-size: 13px; }
+  .release .notes { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .release .notes ul { margin: 6px 0; padding-left: 18px; }
+  .release .notes h4 { color: var(--text); font-size: 14px; margin: 12px 0 4px; }
+  .release .notes p { margin: 6px 0; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 13px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; padding: 48px 0; }
+    .hero .logo { display: none; }
+    .hero h1 { font-size: 34px; }
+    .features { grid-template-columns: 1fr 1fr; }
+    .split { grid-template-columns: 1fr; gap: 24px; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 0 16px; }
+    nav.links a.opt { display: none; }
+    .features { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/logo.svg" alt="">Caravel</a>
+    <nav class="links">
+      <a class="opt" href="#funktionen">Funktionen</a>
+      <a class="opt" href="#sync">Sync</a>
+      <a href="#versionen">Versionen</a>
+      <a href="https://github.com/JonahS51/Caravel">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div>
+      <h1>Ein schneller, aufgeräumter Browser für Windows.</h1>
+      <p class="lead">Caravel basiert auf Chromium und bringt Werbeblocker, kostenloses VPN, eine KI-Seitenleiste und verschlüsselten Sync gleich mit – ohne Konto und ohne Tracking.</p>
+      <div class="actions">
+        <a class="btn" href="/download">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
+          Für Windows herunterladen
+        </a>
+        <span class="meta" id="dl-meta">Windows 10 und 11, 64 Bit</span>
+      </div>
+    </div>
+    <img class="logo" src="/logo.svg" alt="Caravel-Logo">
+  </div>
+
+  <section id="funktionen" class="alt">
+    <div class="wrap">
+      <h2>Funktionen</h2>
+      <p class="intro">Alles, was man von einem modernen Browser erwartet, und einiges, das man sonst erst nachrüsten muss.</p>
+      <div class="features">
+        <div><h3>Werbeblocker</h3><p>Mit den Filterlisten von uBlock Origin, inklusive YouTube-Werbung. Twitch-Werbepausen werden übersprungen.</p></div>
+        <div><h3>Kostenloses VPN</h3><p>Tor mit Länderwahl oder eigene Server über WireGuard, SOCKS5 und HTTP – gilt nur für den Browser.</p></div>
+        <div><h3>KI-Seitenleiste</h3><p>Claude oder ChatGPT neben jeder Seite. Seiten zusammenfassen, Auswahl erklären oder übersetzen. Komplett abschaltbar.</p></div>
+        <div><h3>Chrome-Erweiterungen</h3><p>Erweiterungen direkt aus dem Chrome Web Store installieren.</p></div>
+        <div><h3>Spaces und Split View</h3><p>Tabs nach Themen trennen, zwei Seiten nebeneinander öffnen, Links in einer Vorschau ansehen.</p></div>
+        <div><h3>Chromecast</h3><p>Cast-Knöpfe von Webseiten, Tab oder Bildschirm spiegeln und lokale Dateien abspielen.</p></div>
+        <div><h3>Leseansicht und Leseliste</h3><p>Artikel ohne Ablenkung lesen, vorlesen lassen oder samt Bildern für offline speichern.</p></div>
+        <div><h3>Passwort-Manager</h3><p>Mit Windows verschlüsselt, Import und Export als CSV, Übernahme aus Chrome, Edge und Brave.</p></div>
+        <div><h3>Automatische Updates</h3><p>Neue Versionen laden im Hintergrund und werden beim Beenden installiert.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sync">
+    <div class="wrap split">
+      <div>
+        <h2>Sync, den nur du lesen kannst</h2>
+        <p class="intro" style="margin-bottom:0">Favoriten, Seiten-Notizen, Boosts, Zeitkapseln und Passwörter bleiben auf all deinen PCs gleich. Caravel verschlüsselt alles auf dem Gerät, bevor es hochgeladen wird.</p>
+      </div>
+      <ul>
+        <li><strong>Ende-zu-Ende verschlüsselt</strong> mit AES-256-GCM. Der Server speichert nur Daten, die er selbst nicht lesen kann.</li>
+        <li><strong>Kein Konto, keine E-Mail.</strong> Ein Sync-Code verbindet deine Geräte – er verlässt sie nie.</li>
+        <li><strong>Oder ganz ohne Server:</strong> über einen Ordner in OneDrive, Dropbox oder auf einem Netzlaufwerk.</li>
+        <li>Einrichten unter <code>Einstellungen › Sync</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="versionen" class="alt">
+    <div class="wrap">
+      <h2>Versionen</h2>
+      <p class="intro">Die letzten Änderungen. Alle Versionen findest du auf <a href="https://github.com/JonahS51/Caravel/releases">GitHub</a>.</p>
+      <div id="releases"><p class="meta">Wird geladen …</p></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Caravel ist freie Software unter der GPL-3.0.</span>
+    <a href="https://github.com/JonahS51/Caravel">Quellcode</a>
+    <a href="https://github.com/JonahS51/Caravel/issues">Fehler melden</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var REPO = 'JonahS51/Caravel'
+
+  function esc (s) {
+    return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] })
+  }
+
+  // Sehr kleiner Markdown-Umsetzer für Release-Notizen: Überschriften, Listen, fett, Code, Links
+  function inline (s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
+  }
+  function markdown (md) {
+    var out = []
+    var list = false
+    String(md || '').split(/\r?\n/).forEach(function (line) {
+      var m
+      if ((m = /^\s*[-*]\s+(.*)$/.exec(line))) {
+        if (!list) { out.push('<ul>'); list = true }
+        out.push('<li>' + inline(m[1]) + '</li>')
+        return
+      }
+      if (list) { out.push('</ul>'); list = false }
+      if ((m = /^#{1,6}\s+(.*)$/.exec(line))) out.push('<h4>' + inline(m[1]) + '</h4>')
+      else if (line.trim()) out.push('<p>' + inline(line) + '</p>')
+    })
+    if (list) out.push('</ul>')
+    return out.join('')
+  }
+
+  function mb (bytes) { return Math.round(bytes / 1048576) + ' MB' }
+
+  fetch('https://api.github.com/repos/' + REPO + '/releases?per_page=5', { headers: { accept: 'application/vnd.github+json' } })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json() })
+    .then(function (releases) {
+      releases = releases.filter(function (r) { return !r.draft && !r.prerelease })
+      var latest = releases[0]
+      if (latest) {
+        var exe = (latest.assets || []).filter(function (a) { return /\.exe$/.test(a.name) })[0]
+        document.getElementById('dl-meta').textContent = 'Version ' + latest.tag_name.replace(/^v/, '') + (exe ? ' · ' + mb(exe.size) : '') + ' · Windows 10 und 11, 64 Bit'
+      }
+      document.getElementById('releases').innerHTML = releases.map(function (r) {
+        var date = new Date(r.published_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+        return '<article class="release"><header><h3><a href="' + esc(r.html_url) + '">' + esc(r.name || r.tag_name) + '</a></h3>' +
+          '<time datetime="' + esc(r.published_at) + '">' + esc(date) + '</time></header>' +
+          '<div class="notes">' + markdown(r.body) + '</div></article>'
+      }).join('') || '<p class="meta">Noch keine Versionen veröffentlicht.</p>'
+    })
+    .catch(function () {
+      document.getElementById('releases').innerHTML = '<p class="meta">Die Versionen konnten nicht geladen werden. <a href="https://github.com/' + REPO + '/releases">Auf GitHub ansehen</a></p>'
+    })
+})()
+</script>
+</body>
+</html>
