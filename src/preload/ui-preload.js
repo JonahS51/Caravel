@@ -32,7 +32,7 @@ const INVOKES = new Set([
   'import:sources', 'import:run', 'agent:status', 'agent:set-key', 'agent:run',
   'boost:apply', 'boost:pick', 'fulltext:search',
   'reading:save', 'reading:get',
-  'sync:info', 'sync:pick-folder', 'sync:configure', 'sync:run', 'sync:disable', 'tab:markdown'
+  'sync:info', 'sync:pick-folder', 'sync:configure', 'sync:configure-cloud', 'sync:run', 'sync:disable', 'tab:markdown'
 ])
 
 const sources = {}
